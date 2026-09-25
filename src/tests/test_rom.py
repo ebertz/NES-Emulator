@@ -87,6 +87,28 @@ class ROMHeaderTests(unittest.TestCase):
         self.assertEqual(cartridge.trainer, trainer)
         self.assertEqual(cartridge.cpu_read(0x8000), 0xA5)
 
+    def test_exposes_chr_rom_through_ppu_read_after_load(self):
+        chr_data = bytes((0x31,)) + bytes(CHR_BANK_SIZE - 2) + bytes((0x7F,))
+        cartridge = self.load_image(ines_image(chr_data=chr_data))
+
+        self.assertEqual(cartridge.ppu_read(0x0000), 0x31)
+        self.assertEqual(cartridge.ppu_read(0x1FFF), 0x7F)
+
+    def test_chr_ram_write_read_round_trip_when_no_chr_rom(self):
+        cartridge = self.load_image(ines_image(chr_banks=0))
+
+        cartridge.ppu_write(0x1FFF, 0xA5)
+
+        self.assertEqual(cartridge.ppu_read(0x1FFF), 0xA5)
+
+    def test_maps_32_kib_prg_through_cpu_read_after_load(self):
+        prg = bytes((0x11,)) * PRG_BANK_SIZE + bytes((0x22,)) * PRG_BANK_SIZE
+        cartridge = self.load_image(ines_image(prg_banks=2, prg=prg))
+
+        self.assertEqual(cartridge.cpu_read(0x8000), 0x11)
+        self.assertEqual(cartridge.cpu_read(0xC000), 0x22)
+        self.assertEqual(cartridge.cpu_read(0xFFFF), 0x22)
+
     def test_rejects_unsupported_mapper_with_mapper_id(self):
         with self.assertRaisesRegex(
             UnsupportedMapperError, r"^Unsupported mapper 9$"

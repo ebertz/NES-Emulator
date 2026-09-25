@@ -1,7 +1,15 @@
 import unittest
 import os, sys
+import tempfile
+from io import StringIO
+from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cpu import *
+from rom import ROM
+
+TEST_DIR = Path(__file__).resolve().parent
+NESTEST_ROM = TEST_DIR / 'testROMs' / 'nestest.nes'
+NESTEST_LOG = TEST_DIR.parent / 'nestest.log.txt'
 
 class AddressingModeTests(unittest.TestCase):
 	def setUp(self):
@@ -48,15 +56,15 @@ class AddressingModeTests(unittest.TestCase):
 		assert self.cpu.indirect.read(0x1000) == 0x5
 
 	def test_address_indirect_x_read(self):
-		self.cpu.memory.write16(0x1000, 0x2000)
-		self.cpu.memory.write16(0x2010, 0x3000)
+		self.cpu.memory.write(0x1000, 0x20)
+		self.cpu.memory.write16(0x30, 0x3000)
 		self.cpu.memory.write(0x3000, 0x5)
 		self.cpu.X = 0x10
 		assert self.cpu.indirectX.read(0x1000) == 0x5
 	
 	def test_address_indirect_y_read(self):
-		self.cpu.memory.write16(0x1000, 0x2000)
-		self.cpu.memory.write16(0x2000, 0x3000)
+		self.cpu.memory.write(0x1000, 0x20)
+		self.cpu.memory.write16(0x20, 0x3000)
 		self.cpu.memory.write(0x3010, 0x5)
 		self.cpu.Y = 0x10
 		assert self.cpu.indirectY.read(0x1000) == 0x5
@@ -75,7 +83,7 @@ class AddressingModeTests(unittest.TestCase):
 	def test_address_relative_read(self):
 		self.cpu.PC = 0x1000
 		self.cpu.memory.write(0x1001, 0x10)
-		assert self.cpu.relative.read(0x1001) == 0x1010
+		assert self.cpu.relative.read(0x1001) == 0x1012
 
 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -114,15 +122,15 @@ class AddressingModeTests(unittest.TestCase):
 		assert self.cpu.memory.read(0x2010) == 0x5			
 
 	def test_address_indirect_x_write(self):
-		self.cpu.memory.write16(0x1000, 0x2000)
+		self.cpu.memory.write(0x1000, 0x20)
 		self.cpu.X = 0x10
-		self.cpu.memory.write16(0x2010, 0x3000)
+		self.cpu.memory.write16(0x30, 0x3000)
 		self.cpu.indirectX.write(0x1000, 0x5)
 		assert self.cpu.memory.read(0x3000) == 0x5
 
 	def test_address_indirect_y_write(self):
-		self.cpu.memory.write16(0x1000, 0x2000)
-		self.cpu.memory.write16(0x2000, 0x3000)
+		self.cpu.memory.write(0x1000, 0x20)
+		self.cpu.memory.write16(0x20, 0x3000)
 		self.cpu.Y = 0x10
 		self.cpu.indirectY.write(0x1000, 0x5)
 		assert self.cpu.memory.read(0x3010) == 0x5
@@ -160,16 +168,16 @@ class AddressingModeTests(unittest.TestCase):
 		assert self.cpu.absoluteY.getCrossPageCycles(0x1000) == 0
 
 	def test_address_indirect_y_crosspage(self):
-		self.cpu.memory.write16(0x1000, 0x2000)
-		self.cpu.memory.write16(0x2000, 0x2FFF)
+		self.cpu.memory.write(0x1000, 0x20)
+		self.cpu.memory.write16(0x20, 0x2FFF)
 		self.cpu.memory.write(0x3000, 0x5)
 		self.cpu.Y = 0x1
 		assert self.cpu.indirectY.read(0x1000) == 0x5
 		assert self.cpu.indirectY.getCrossPageCycles(0x1000) == 1
 
 	def test_address_indirect_y_no_crosspage(self):
-		self.cpu.memory.write16(0x1000, 0x2000)
-		self.cpu.memory.write16(0x2000, 0x3000)
+		self.cpu.memory.write(0x1000, 0x20)
+		self.cpu.memory.write16(0x20, 0x3000)
 		self.cpu.memory.write(0x3010, 0x5)
 		self.cpu.Y = 0x10
 		assert self.cpu.indirectY.read(0x1000) == 0x5
@@ -406,7 +414,7 @@ class InstructionTests(unittest.TestCase):
 		self.cpu.PC = 0x1000
 		self.cpu.memory.write16(0x1001, 0x2000)
 		self.cpu.execute(*self.cpu.instructions[0x20])
-		assert self.cpu.popStack() + (self.cpu.popStack() << 8) == 0x1003
+		assert self.cpu.popStack() + (self.cpu.popStack() << 8) == 0x1002
 		assert self.cpu.PC == 0x2000
 
 	def test_lda(self):
@@ -480,7 +488,7 @@ class InstructionTests(unittest.TestCase):
 		init_sp = self.cpu.SP
 		self.cpu.pushStack(0xdf)
 		self.cpu.execute(*self.cpu.instructions[0x28])
-		assert self.cpu.getProcessorStatus() == 0xdf
+		assert self.cpu.getProcessorStatus() == 0xff
 		assert self.cpu.SP == init_sp
 
 	def test_rol(self):
@@ -504,8 +512,8 @@ class InstructionTests(unittest.TestCase):
 		self.cpu.execute(*self.cpu.instructions[0x00])
 		assert self.cpu.PC == 0x2000
 		self.cpu.execute(*self.cpu.instructions[0x40])
-		assert self.cpu.PC == 0x1001
-		assert self.cpu.getProcessorStatus() == 0x0F
+		assert self.cpu.PC == 0x1002
+		assert self.cpu.getProcessorStatus() == 0x2F
 
 
 	def test_rts(self):
@@ -610,35 +618,44 @@ class InstructionTests(unittest.TestCase):
 		assert self.cpu.N
 		assert not self.cpu.Z
 
+class ROMValidationTests(unittest.TestCase):
+	def test_rom_rejects_file_without_ines_magic(self):
+		with tempfile.NamedTemporaryFile(mode='wb', suffix='.bin') as tmp:
+			tmp.write(b'XXX' + bytes(13))
+			tmp.flush()
+			with self.assertRaises(ValueError) as ctx:
+				ROM(tmp.name)
+			self.assertEqual(str(ctx.exception), 'Invalid iNES ROM')
+
+	def test_cpu_rejects_file_without_ines_magic(self):
+		with tempfile.NamedTemporaryFile(mode='wb', suffix='.bin') as tmp:
+			tmp.write(b'XXX' + bytes(13))
+			tmp.flush()
+			with self.assertRaises(ValueError) as ctx:
+				CPU(tmp.name)
+			self.assertEqual(str(ctx.exception), 'Invalid iNES ROM')
+
+
 class ROMTests(unittest.TestCase):
 	def testROM(self):
-		cpu = CPU()
+		actualOutput = StringIO()
+		cpu = CPU(NESTEST_ROM, actualOutput)
 		cpu.PC = 0xc000
-		for x in range(5000):
-			try:
-				cpu.fetch()
-			except:
-				print(str(x) + ' instructions tested...')
-				break
-		cpu.logFile.close()
+		for _ in range(5000):
+			cpu.fetch()
 
-		expectedOutput = open('nestest.log.txt', 'r')
-		actualOutput = open('log.txt')
-		line = 1
-		while True:
-			actualLine = actualOutput.readline()
-			expectedLine = expectedOutput.readline()
-			if actualLine == '' or expectedLine == '': break
-			if actualLine[0:4] != expectedLine[0:4]:
-				print('Instruction error on line: ' + str(line))
-				break
-			index1 = actualLine.index('CYC')
-			index2 = expectedLine.index('CYC')
-			if actualLine[index1:] != expectedLine[index2:]:
-				print('Timing error on line: ' + str(line))
-				break
-			line += 1
-		actualOutput.close()
-		expectedOutput.close()
+		actual_lines = actualOutput.getvalue().splitlines(keepends=True)
+		self.assertEqual(len(actual_lines), 5000)
+		with NESTEST_LOG.open() as expectedOutput:
+			expected_lines = expectedOutput.readlines()
+			for line, (actualLine, expectedLine) in enumerate(
+				zip(actual_lines, expected_lines), start=1
+			):
+				self.assertEqual(actualLine[0:4], expectedLine[0:4], line)
+				self.assertEqual(
+					actualLine[actualLine.index('CYC'):],
+					expectedLine[expectedLine.index('CYC'):],
+					line,
+				)
 if __name__ == '__main__':
 	unittest.main()

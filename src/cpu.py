@@ -10,6 +10,7 @@ class CPU:
     def __init__(self, rom_path=None, log_file=None):
         self.console = None
         self.memory = memory.Memory(0x10000)
+        self.cartridge = None
         if rom_path is not None:
             self.loadROM(rom_path)
         self.clock = None
@@ -254,7 +255,8 @@ class CPU:
         }
 
     def loadROM(self, filepath):
-        self.memory.loadROM(rom.ROM(filepath))
+        self.cartridge = rom.ROM(filepath)
+        self.memory.loadROM(self.cartridge)
 
     def run(self):
         pass

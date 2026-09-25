@@ -3,10 +3,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cpu import CPU
+from ppu import PPU
 from rom import (
     CHR_BANK_SIZE,
     MIRROR_FOUR_SCREEN,
@@ -218,6 +220,40 @@ class Mapper0Tests(unittest.TestCase):
 
         self.assertEqual(cpu.memory.read(0x8000), 0x44)
         self.assertEqual(cpu.memory.read(0xC000), 0x44)
+
+    def test_cpu_memory_routes_cartridge_writes_to_mapper(self):
+        prg = bytes((0x44,)) * PRG_BANK_SIZE
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.nes"
+            path.write_bytes(ines_image(prg=prg))
+            cpu = CPU(path)
+
+            cpu.memory.write(0x8000, 0x99)
+
+        self.assertEqual(cpu.memory.read(0x8000), 0x44)
+
+    def test_ppu_routes_pattern_table_access_through_cartridge(self):
+        chr_data = bytes((0x31,)) + bytes(CHR_BANK_SIZE - 1)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.nes"
+            path.write_bytes(ines_image(chr_data=chr_data))
+            cpu = CPU(path)
+            ppu = PPU(SimpleNamespace(cpu=cpu))
+
+            ppu.write(0x0000, 0x99)
+
+        self.assertEqual(ppu.read(0x0000), 0x31)
+
+    def test_ppu_routes_pattern_table_writes_to_chr_ram(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.nes"
+            path.write_bytes(ines_image(chr_banks=0))
+            cpu = CPU(path)
+            ppu = PPU(SimpleNamespace(cpu=cpu))
+
+            ppu.write(0x1FFF, 0xA5)
+
+        self.assertEqual(ppu.read(0x1FFF), 0xA5)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ class PPU:
 		self.nes = nes
 		self.memory = memory.Memory(0x4000)
 		self.cpuMemory = self.nes.cpu.memory
+		self.cartridge = self.nes.cpu.cartridge
 		self.scanline = 0
 		self.cycle = 0
 
@@ -71,10 +72,15 @@ class PPU:
 
 
 	def read(self, address):
-		return self.memory[address]
+		if 0 <= address <= 0x1FFF:
+			return self.cartridge.ppu_read(address)
+		return self.memory.read(address)
 
 	def write(self, address, value):
-		self.memory[address] = value & 0xFF
+		if 0 <= address <= 0x1FFF:
+			self.cartridge.ppu_write(address, value)
+			return
+		self.memory.write(address, value & 0xFF)
 
 	def step(self):
 		renderLine = self.scanline < 240

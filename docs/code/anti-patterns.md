@@ -23,5 +23,5 @@ RIGHT: paths relative to `__file__` in tests; library code takes paths as args.
 
 ## Editing generated ADLC bundle stubs instead of repo docs
 
-WRONG: hand-edit onboard-repo output to clear `_Not yet documented._`.
+WRONG: hand-edit onboard-repo output to clear the generator stub marker phrase.
 RIGHT: keep authoritative prose in `docs/` in this repository and re-onboard.

@@ -115,6 +115,20 @@ class ROMHeaderTests(unittest.TestCase):
         ):
             self.load_image(ines_image(flags6=0x90))
 
+    def test_rejects_mapper_id_from_flags7_high_nibble(self):
+        # Regression: mapper_id must include (flags7 & 0xF0), not flags6 alone.
+        with self.assertRaisesRegex(
+            UnsupportedMapperError, r"^Unsupported mapper 16$"
+        ):
+            self.load_image(ines_image(flags7=0x10))
+
+    def test_rejects_combined_mapper_id_from_flags6_and_flags7(self):
+        # flags6=0x90 → low nibble 9; flags7=0x10 → high nibble 1 → mapper 25.
+        with self.assertRaisesRegex(
+            UnsupportedMapperError, r"^Unsupported mapper 25$"
+        ):
+            self.load_image(ines_image(flags6=0x90, flags7=0x10))
+
     def test_rejects_nes_2_header(self):
         with self.assertRaisesRegex(
             ValueError, r"^NES 2\.0 ROMs are not supported$"

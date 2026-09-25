@@ -30,6 +30,9 @@ class Implied(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(1, cpu, 0)
 
+	def read(self, address):
+		return None
+
 class Immediate(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(2, cpu, 0)
@@ -140,7 +143,7 @@ class Indirect(AddressingMode):
 
 	def read(self, address):
 		indirect_address = self.cpu.memory.read16(address)
-		return self.cpu.memory.read16(indirect_address)
+		return self.cpu.memory.read(self.cpu.memory.read16(indirect_address))
 
 	def format(self):
 		return '${:04x}'.format(self.get())

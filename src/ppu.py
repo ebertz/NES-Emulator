@@ -14,10 +14,10 @@
 import memory
 
 class PPU:
-	def __init__(self, nes)
+	def __init__(self, nes):
+		self.nes = nes
 		self.memory = memory.Memory(0x4000)
 		self.cpuMemory = self.nes.cpu.memory
-		self.nes = nes
 		self.scanline = 0
 		self.cycle = 0
 
@@ -82,7 +82,7 @@ class PPU:
 		preRenderLine = self.scanline == 261
 		renderingEnabled = self.flag_show_background or self.flag_show_sprites
 
-		if preRender:
+		if preRenderLine:
 			pass
 
 		if renderingEnabled:
@@ -119,26 +119,26 @@ class PPU:
 				self.scanline = 0
 
 		# advance to next scanline
-		if self.cycle >= 340
+		if self.cycle >= 340:
 			self.scanline += 1
 			self.cycle = -1
 
 		self.cycle += 1
 
-	def renderPixel():
-		raise Exception('renderPixel not implemented')
+	def renderPixel(self):
+		raise NotImplementedError('renderPixel not implemented')
 
-	def fetchNameTableByte():
-		raise Exception('fetchNameTableByte not implemented')
+	def fetchNameTableByte(self):
+		raise NotImplementedError('fetchNameTableByte not implemented')
 
-	def fetchAttributeTableByte():
-		raise Exception('fetchAttributeTableByte not implemented')
+	def fetchAttributeTableByte(self):
+		raise NotImplementedError('fetchAttributeTableByte not implemented')
 
-	def fetchLowTileByte():
-		raise Exception('fetchLowTileByte not implemented')
+	def fetchLowTileByte(self):
+		raise NotImplementedError('fetchLowTileByte not implemented')
 
-	def fetchHighTileByte():
-		raise Exception('fetchHighTileByte not implemented')
+	def fetchHighTileByte(self):
+		raise NotImplementedError('fetchHighTileByte not implemented')
 
 
 	def readRegister(self, address):

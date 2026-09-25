@@ -1,9 +1,11 @@
 import unittest
 import os, sys
+import tempfile
 from io import StringIO
 from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cpu import *
+from rom import ROM
 
 TEST_DIR = Path(__file__).resolve().parent
 NESTEST_ROM = TEST_DIR / 'testROMs' / 'nestest.nes'
@@ -615,6 +617,24 @@ class InstructionTests(unittest.TestCase):
 		assert self.cpu.A == 0xFF
 		assert self.cpu.N
 		assert not self.cpu.Z
+
+class ROMValidationTests(unittest.TestCase):
+	def test_rom_rejects_file_without_ines_magic(self):
+		with tempfile.NamedTemporaryFile(mode='wb', suffix='.bin') as tmp:
+			tmp.write(b'XXX' + bytes(13))
+			tmp.flush()
+			with self.assertRaises(ValueError) as ctx:
+				ROM(tmp.name)
+			self.assertEqual(str(ctx.exception), 'Invalid iNES ROM')
+
+	def test_cpu_rejects_file_without_ines_magic(self):
+		with tempfile.NamedTemporaryFile(mode='wb', suffix='.bin') as tmp:
+			tmp.write(b'XXX' + bytes(13))
+			tmp.flush()
+			with self.assertRaises(ValueError) as ctx:
+				CPU(tmp.name)
+			self.assertEqual(str(ctx.exception), 'Invalid iNES ROM')
+
 
 class ROMTests(unittest.TestCase):
 	def testROM(self):

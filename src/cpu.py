@@ -3,14 +3,14 @@
 # http://www.6502.org/tutorials/6502opcodes.html
 import memory
 import addressing
-import rom
 
 class CPU:
 
-    def __init__(self):
+    def __init__(self, cartridge=None):
         self.console = None
         self.memory = memory.Memory(0x10000)
-        self.memory.loadROM(rom.ROM())
+        if cartridge is not None:
+            self.memory.loadROM(cartridge)
         self.clock = None
         self.cycles = 0
         self.debug = True

@@ -21,5 +21,6 @@ class Memory:
 		self.memory[address + 1] = (value >> 8) & 0xFF
 
 	def loadROM(self, rom):
-		self.memory[0xC000:(0xC000 + 0x4000 * rom.prg_rom_size)] = rom.prg_rom
+		for address in range(0x8000, 0x10000):
+			self.memory[address] = rom.mapper.cpu_read(address)
 		

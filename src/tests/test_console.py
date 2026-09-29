@@ -176,6 +176,27 @@ class BusTests(unittest.TestCase):
         self.assertEqual(player_one_bits, [1, 0, 0, 0, 0, 0, 0, 0])
         self.assertEqual(player_two_bits, [0, 1, 0, 0, 0, 0, 0, 0])
 
+    def test_controller_latches_buttons_on_strobe_falling_edge(self):
+        # Regression N4T3-REV-CTRL-STROBE-UNPINNED: reload must use buttons at strobe 0,
+        # not the snapshot taken when strobe was raised.
+        self.controllers[0].buttons = 0b00000001
+        self.bus.write(0x4016, 1)
+        self.controllers[0].buttons = 0b00000010
+        self.bus.write(0x4016, 0)
+
+        bits = [self.bus.read(0x4016) & 1 for _ in range(8)]
+
+        self.assertEqual(bits, [0, 1, 0, 0, 0, 0, 0, 0])
+
+    def test_controller_while_strobe_high_returns_live_button_a_bit(self):
+        self.bus.write(0x4016, 1)
+        self.controllers[0].buttons = 0b00000001
+        self.assertEqual(self.bus.read(0x4016) & 1, 1)
+
+        self.controllers[0].buttons = 0b00000000
+        self.assertEqual(self.bus.read(0x4016) & 1, 0)
+        self.assertEqual(self.bus.read(0x4016) & 1, 0)
+
     def test_cartridge_space_without_cartridge_uses_open_bus(self):
         # Regression N4T3-REV-1: guard `cartridge is not None` must stay on _read/_write.
         self.bus.write(0x8000, 0x5A)

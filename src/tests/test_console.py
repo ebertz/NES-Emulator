@@ -44,12 +44,55 @@ class BusTests(unittest.TestCase):
         self.controllers = (Controller(), Controller())
         self.bus = Bus(self.ppu, APU(), self.controllers)
 
-    def test_ram_and_ppu_registers_are_mirrored(self):
-        self.bus.write(0x0003, 0xA5)
-        self.assertEqual(self.bus.read(0x1803), 0xA5)
+    def test_ram_mirrors_across_cpu_ranges(self):
+        for base in (0x0000, 0x0800, 0x1000, 0x1800):
+            value = (base >> 8) ^ 0x5A
+            self.bus.write(base + 0x003, value)
+            for mirror in (0x0003, 0x0803, 0x1003, 0x1803):
+                self.assertEqual(
+                    self.bus.read(mirror),
+                    value,
+                    f"write ${base + 0x003:04X}, read ${mirror:04X}",
+                )
 
-        self.bus.write(0x3FF8, 0x80)
+    def test_ram_mirror_write_at_high_page_reads_back_at_low_page(self):
+        self.bus.write(0x17FF, 0x3C)
+        self.assertEqual(self.bus.read(0x07FF), 0x3C)
+        self.assertEqual(self.bus.read(0x0FFF), 0x3C)
+
+    def test_ppu_registers_are_mirrored_every_eight_bytes(self):
+        self.bus.write(0x2000, 0x80)
         self.assertEqual(self.ppu.ctrl, 0x80)
+
+        self.bus.write(0x3FF8, 0x55)
+        self.assertEqual(self.ppu.ctrl, 0x55)
+
+    def test_ppu_status_vblank_bit_clears_on_second_read(self):
+        self.ppu.vblank = True
+        first = self.bus.read(0x2002)
+        second = self.bus.read(0x2002)
+
+        self.assertEqual(first & 0x80, 0x80)
+        self.assertEqual(second & 0x80, 0)
+        self.assertFalse(self.ppu.vblank)
+
+    def test_ppu_status_read_resets_write_toggle_for_ppuaddr(self):
+        self.bus.write(0x2005, 0x00)
+        self.assertEqual(self.ppu.w, 1)
+
+        self.bus.read(0x2002)
+
+        self.bus.write(0x2006, 0x12)
+        self.bus.write(0x2006, 0x34)
+        self.assertEqual(self.ppu._ppuaddr, 0x1234)
+
+    def test_oamdata_write_auto_increments_oamaddr(self):
+        self.bus.write(0x2003, 0x10)
+        for value in range(4):
+            self.bus.write(0x2004, 0xA0 + value)
+
+        self.assertEqual(self.ppu.oam[0x10:0x14], bytes([0xA0, 0xA1, 0xA2, 0xA3]))
+        self.assertEqual(self.ppu.oamaddr, 0x14)
 
     def test_oam_dma_copies_full_bus_page_and_requests_stall(self):
         for offset in range(256):
@@ -62,6 +105,35 @@ class BusTests(unittest.TestCase):
         self.assertEqual(self.ppu.oam[0x3F], 0xFF)
         self.assertEqual(self.bus.dma_stall_cycles, 513)
 
+    def test_oam_dma_from_cartridge_page(self):
+        prg = bytearray(b"\x00" * 0x4000)
+        for index in range(256):
+            prg[index] = (0xC0 + index) & 0xFF
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "dma.nes"
+        path.write_bytes(make_ines(prg=bytes(prg)))
+        bus = Bus(PPU(), APU(), (Controller(), Controller()), ROM(path))
+        bus.write(0x2003, 0x00)
+
+        bus.write(0x4014, 0x80)
+
+        expected = bytes((0xC0 + index) & 0xFF for index in range(256))
+        self.assertEqual(bytes(bus.ppu.oam), expected)
+        self.assertEqual(bus.dma_stall_cycles, 513)
+
+    def test_apu_registers_accept_writes_and_status_reads_zero(self):
+        apu = APU()
+        bus = Bus(PPU(), apu, (Controller(), Controller()))
+        for addr in range(0x4000, 0x4014):
+            bus.write(addr, addr & 0xFF)
+            self.assertEqual(apu._registers[addr & 0x1F], addr & 0xFF)
+        bus.write(0x4015, 0xEE)
+        bus.write(0x4017, 0x77)
+        self.assertEqual(apu._registers[0x15], 0xEE)
+        self.assertEqual(apu._registers[0x17], 0x77)
+        self.assertEqual(bus.read(0x4015), 0)
+
     def test_controllers_shift_buttons_then_return_one(self):
         self.controllers[0].buttons = 0b10100101
         self.bus.write(0x4016, 1)
@@ -70,6 +142,40 @@ class BusTests(unittest.TestCase):
         bits = [self.bus.read(0x4016) & 1 for _ in range(10)]
 
         self.assertEqual(bits, [1, 0, 1, 0, 0, 1, 0, 1, 1, 1])
+
+    def test_controller_reads_preserve_open_bus_upper_bits(self):
+        self.controllers[0].buttons = 0b00000001
+        self.bus.write(0x4016, 1)
+        self.bus.write(0x4016, 0)
+        self.bus.write(0x0100, 0xA5)
+
+        value = self.bus.read(0x4016)
+
+        self.assertEqual(value, 0xA1)
+
+    def test_strobe_on_4016_applies_to_both_controller_ports(self):
+        self.controllers[0].buttons = 0b00000001
+        self.controllers[1].buttons = 0b00000010
+        self.bus.write(0x4016, 1)
+        self.bus.write(0x4016, 0)
+
+        port_one = self.bus.read(0x4016) & 1
+        port_two = self.bus.read(0x4017) & 1
+
+        self.assertEqual(port_one, 1)
+        self.assertEqual(port_two, 0)
+
+    def test_4017_reads_player_two_controller_not_player_one(self):
+        self.controllers[0].buttons = 0b00000001
+        self.controllers[1].buttons = 0b00000010
+        self.bus.write(0x4016, 1)
+        self.bus.write(0x4016, 0)
+
+        player_one_bits = [self.bus.read(0x4016) & 1 for _ in range(8)]
+        player_two_bits = [self.bus.read(0x4017) & 1 for _ in range(8)]
+
+        self.assertEqual(player_one_bits, [1, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(player_two_bits, [0, 1, 0, 0, 0, 0, 0, 0])
 
     def test_cartridge_space_without_cartridge_uses_open_bus(self):
         # Regression N4T3-REV-1: guard `cartridge is not None` must stay on _read/_write.
@@ -118,6 +224,30 @@ class ConsoleTests(unittest.TestCase):
 
         self.assertEqual(cycles, 2)
         self.assertEqual(self.console.ppu.dot, 6)
+
+    def test_step_accumulates_ppu_dots_as_three_times_returned_cycles(self):
+        self.console = Console()
+        self.console.cpu.debug = False
+        self.console.bus.write(0, 0xEA)
+        self.console.bus.write(1, 0xEA)
+
+        total_cycles = 0
+        for _ in range(5):
+            total_cycles += self.console.step()
+
+        self.assertEqual(
+            self.console.ppu.scanline * 341 + self.console.ppu.dot,
+            total_cycles * 3,
+        )
+
+    def test_vblank_begins_after_one_full_pre_vblank_frame(self):
+        ppu = PPU()
+        target_dots = 241 * 341 + 1
+        for _ in range(target_dots - 1):
+            ppu.step()
+        self.assertFalse(ppu.vblank)
+        ppu.step()
+        self.assertTrue(ppu.vblank)
 
     def test_dma_stall_is_consumed_by_scheduler(self):
         self.console = Console()

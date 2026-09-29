@@ -302,6 +302,40 @@ class InterruptTests(unittest.TestCase):
         self.assertTrue(self.cpu.service_interrupts())
         self.assertEqual(self.cpu.PC, 0x4567)
 
+    def _pushed_status_after_interrupt(self):
+        return self.memory.read(self.cpu.SP + 1)
+
+    def test_nmi_stack_frame_clears_b_when_b_was_set(self):
+        # Regression N4T3-R1: NMI must not push B=1 (would look like a BRK frame).
+        self.memory.write16(0xFFFE, 0x8000)
+        self.memory.write16(0xFFFA, 0x3456)
+        self.cpu.PC = 0x1234
+        self.cpu.execute(*self.cpu.instructions[0x00])
+        self.assertEqual(self.cpu.B, 1)
+
+        self.cpu.set_nmi_line(True)
+        self.assertTrue(self.cpu.service_interrupts())
+
+        pushed_p = self._pushed_status_after_interrupt()
+        self.assertEqual(pushed_p & 0x10, 0)
+        self.assertEqual(pushed_p & 0x20, 0x20)
+
+    def test_irq_stack_frame_clears_b_when_b_was_set(self):
+        # Regression N4T3-R1: IRQ must not push B=1 (would look like a BRK frame).
+        self.memory.write16(0xFFFE, 0x8000)
+        self.cpu.PC = 0x1234
+        self.cpu.execute(*self.cpu.instructions[0x00])
+        self.assertEqual(self.cpu.B, 1)
+        self.cpu.I = 0
+
+        self.memory.write16(0xFFFE, 0x4567)
+        self.cpu.set_irq_line(True)
+        self.assertTrue(self.cpu.service_interrupts())
+
+        pushed_p = self._pushed_status_after_interrupt()
+        self.assertEqual(pushed_p & 0x10, 0)
+        self.assertEqual(pushed_p & 0x20, 0x20)
+
 
 if __name__ == "__main__":
     unittest.main()

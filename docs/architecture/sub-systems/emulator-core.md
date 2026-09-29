@@ -8,14 +8,14 @@ register traffic.
 
 Own the code that turns a cartridge image into CPU-executable memory and (as
 tickets land) a clocked PPU/APU/bus. Punch-Out requires Mapper 9 (MMC2); the
-current tree is still Mapper-agnostic and nestest-oriented.
+current tree supports Mapper 0 (NROM) and remains nestest-oriented.
 
 ## Anchor Files
 
 - `src/cpu.py` — 6502 CPU and instruction decode/execute
 - `src/addressing.py` — addressing-mode helpers
 - `src/memory.py` — early flat-memory helper (to be replaced by a bus)
-- `src/rom.py` — iNES loader (must stop hard-coding nestest)
+- `src/rom.py` — path-based iNES 1.0 loader and Mapper 0 implementation
 - `src/ppu.py` — PPU skeleton (must compile; rendering is later tickets)
 
 ## Public Contract

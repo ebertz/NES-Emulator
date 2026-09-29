@@ -7,10 +7,12 @@ import rom
 
 class CPU:
 
-    def __init__(self):
+    def __init__(self, cartridge=None):
         self.console = None
         self.memory = memory.Memory(0x10000)
-        self.memory.loadROM(rom.ROM())
+        self.cartridge = None
+        if cartridge is not None:
+            self.loadROM(cartridge)
         self.clock = None
         self.cycles = 0
         self.debug = True
@@ -252,8 +254,11 @@ class CPU:
 
         }
 
-    def loadROM(self, filepath):
-        pass
+    def loadROM(self, cartridge):
+        if not isinstance(cartridge, rom.ROM):
+            cartridge = rom.ROM(cartridge)
+        self.cartridge = cartridge
+        self.memory.loadROM(cartridge)
 
     def run(self):
         pass

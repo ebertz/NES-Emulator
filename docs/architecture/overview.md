@@ -45,3 +45,4 @@ Every tracked file under `src/` appears here exactly once.
 - `src/tests/__init__.py`
 - `src/tests/testROMs/nestest.nes`
 - `src/tests/test_cpu.py`
+- `src/tests/test_rom.py`

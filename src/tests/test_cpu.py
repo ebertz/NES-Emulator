@@ -1,11 +1,14 @@
 import unittest
 import os, sys
+from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cpu import *
 
+NESTEST_ROM = Path(__file__).resolve().parent / "testROMs" / "nestest.nes"
+
 class AddressingModeTests(unittest.TestCase):
 	def setUp(self):
-		self.cpu = CPU()
+		self.cpu = CPU(NESTEST_ROM)
 
 	def test_address_zero_page_read(self):
 		self.cpu.memory.write(0x10, 5)
@@ -177,7 +180,7 @@ class AddressingModeTests(unittest.TestCase):
 
 class InstructionTests(unittest.TestCase):
 	def setUp(self):
-		self.cpu = CPU()
+		self.cpu = CPU(NESTEST_ROM)
 
 	def tearDown(self):
 		pass
@@ -612,7 +615,7 @@ class InstructionTests(unittest.TestCase):
 
 class ROMTests(unittest.TestCase):
 	def testROM(self):
-		cpu = CPU()
+		cpu = CPU(NESTEST_ROM)
 		cpu.PC = 0xc000
 		for x in range(5000):
 			try:

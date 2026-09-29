@@ -1,8 +1,7 @@
 # emulator-core
 
 Python NES console core: 6502 CPU, addressing helpers, system bus, iNES ROM
-loading, and a PPU module that must at least compile and accept register
-traffic.
+loading, PPU register/timing behavior, and 2A03 audio synthesis.
 
 ## Purpose
 
@@ -13,7 +12,7 @@ exposes the mapper interface with Mapper 0 for nestest.
 ## Anchor Files
 
 - `src/addressing.py` — addressing-mode helpers
-- `src/apu.py` — register-level APU stub and IRQ line
+- `src/apu.py` — pulse, triangle, noise, DMC, frame counter, and PCM mixer
 - `src/bus.py` — CPU address map, RAM mirrors, and OAM DMA
 - `src/console.py` — component wiring and cycle scheduler
 - `src/controller.py` — serial controller port

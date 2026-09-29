@@ -9,8 +9,8 @@ the declared source roots belongs to exactly one subsystem below.
 
 ## Subsystems
 
-1. **emulator-core** — CPU, addressing modes, NES system bus, iNES ROM loader,
-   and PPU skeleton that together form the console core. See
+1. **emulator-core** — CPU, addressing modes, NES system bus, 2A03 APU, iNES
+   ROM loader, and PPU skeleton that together form the console core. See
    [`sub-systems/emulator-core.md`](./sub-systems/emulator-core.md).
 2. **tests** — Unit tests and redistributable fixtures (nestest). See
    [`sub-systems/tests.md`](./sub-systems/tests.md).
@@ -47,6 +47,7 @@ Every tracked file under `src/` appears here exactly once.
 ### tests
 
 - `src/tests/__init__.py`
+- `src/tests/test_apu.py`
 - `src/tests/test_console.py`
 - `src/tests/test_cpu.py`
 - `src/tests/test_rom.py`

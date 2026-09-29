@@ -10,6 +10,7 @@ and frontend behavior — without shipping commercial ROMs.
 ## Anchor Files
 
 - `src/tests/__init__.py` — package marker
+- `src/tests/test_apu.py` — register, channel fixture, DMC, IRQ, and mixer checks
 - `src/tests/test_console.py` — bus, scheduler, controller, and interrupt behavior
 - `src/tests/test_cpu.py` — CPU unit and nestest log compare
 - `src/tests/test_rom.py` — synthetic iNES parsing and mapper behavior tests

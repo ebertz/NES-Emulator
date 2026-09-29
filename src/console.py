@@ -13,6 +13,7 @@ class Console:
         self.apu = APU()
         self.controllers = (Controller(), Controller())
         self.bus = Bus(self.ppu, self.apu, self.controllers, cartridge)
+        self.apu.memory_reader = self.bus.read
         self.cpu = CPU(self.bus)
 
     def reset(self):
@@ -34,6 +35,7 @@ class Console:
         dots = elapsed_cycles * 3
         for _ in range(dots):
             self.ppu.step()
+        self.bus.apu.step(elapsed_cycles)
 
         self.cpu.set_nmi_line(self.ppu.nmi_line)
         self.cpu.set_irq_line(self.apu.irq_line)

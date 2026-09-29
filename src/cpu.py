@@ -1,20 +1,19 @@
 # CPU architecture references :
 # http://www.obelisk.me.uk/6502/reference.html
 # http://www.6502.org/tutorials/6502opcodes.html
-import memory
 import addressing
-import rom
 
 class CPU:
 
-    def __init__(self):
-        self.console = None
-        self.memory = memory.Memory(0x10000)
-        self.memory.loadROM(rom.ROM())
+    def __init__(self, bus):
+        self.bus = bus
         self.clock = None
         self.cycles = 0
         self.debug = True
         self.logFile = open('log.txt', 'w')
+        self.nmi_pending = False
+        self.irq_line = False
+        self._nmi_line = False
 
         #status flags
         self.C = 0
@@ -260,12 +259,38 @@ class CPU:
 
     #stack is located at 0x0100-0x01FF, top-down, wraps to start of stack if overflow
     def pushStack(self, value):
-        self.memory.write(self.SP, value)
+        self.bus.write(self.SP, value)
         self.SP -= 1
 
     def popStack(self):
         self.SP += 1
-        return self.memory.read(self.SP)
+        return self.bus.read(self.SP)
+
+    def set_nmi_line(self, level):
+        level = bool(level)
+        if level and not self._nmi_line:
+            self.nmi_pending = True
+        self._nmi_line = level
+
+    def set_irq_line(self, level):
+        self.irq_line = bool(level)
+
+    def service_interrupts(self):
+        if self.nmi_pending:
+            self.nmi_pending = False
+            vector = 0xFFFA
+        elif self.irq_line and not self.I:
+            vector = 0xFFFE
+        else:
+            return False
+
+        self.pushStack((self.PC >> 8) & 0xFF)
+        self.pushStack(self.PC & 0xFF)
+        self.pushStack(self.getProcessorStatus() & ~0x10)
+        self.I = 1
+        self.PC = self.bus.read16(vector)
+        self.cycles += 7
+        return True
 
     # NV_BDIZC
     def getProcessorStatus(self):
@@ -288,8 +313,14 @@ class CPU:
     def setSP(self, value):
         self.SP = 0x100 + (value & 0xFF)
 
+    def peek(self, address):
+        return self.bus.peek(address)
+
+    def peek16(self, address):
+        return self.bus.peek16(address)
+
     def fetch(self):
-        opcode = self.memory.read(self.PC)
+        opcode = self.bus.read(self.PC)
         self.execute(*self.instructions[opcode])
 
     # execute an instruction        
@@ -298,7 +329,7 @@ class CPU:
             self.logOperation(instruction, addressingMode)
         instruction(addressingMode)
         self.PC += addressingMode.size
-        self.cycles += cycles * 3
+        self.cycles += cycles
 
     def logOperation(self, instruction, addressingMode):
         name = instruction.__name__
@@ -306,7 +337,7 @@ class CPU:
         log = str("{:04x}".format(self.PC)) + ' '
 
         for i in range(ops):
-            log += ' ' + str("{:02x}".format(self.memory.read(self.PC + i)))
+            log += ' ' + str("{:02x}".format(self.peek(self.PC + i)))
         log += ' ' * (16 - len(log))
         log += ' ' + instruction.__name__
         log += ' ' + addressingMode.format()
@@ -317,8 +348,13 @@ class CPU:
 
         #log += ' {:04x}'.format(addressingMode.get())
         log += ' ' * (48 - len(log))
-        spaces = '  ' if self.cycles % 341 < 10 else (' ' if self.cycles % 341 < 100 else '')
-        log+= ' A:{:02x} X:{:02x} Y:{:02x} P:{:02x} SP:{:02x} CYC:{}{}\n'.format(self.A, self.X, self.Y, self.getProcessorStatus(), self.SP, spaces, self.cycles % 341)
+        ppu_cycle = (self.cycles * 3) % 341
+        spaces = '  ' if ppu_cycle < 10 else (' ' if ppu_cycle < 100 else '')
+        status = self.getProcessorStatus() & ~0x10
+        log += (
+            ' A:{:02x} X:{:02x} Y:{:02x} P:{:02x} SP:{:02x} CYC:{}{}\n'
+            .format(self.A, self.X, self.Y, status, self.SP, spaces, ppu_cycle)
+        )
         self.logFile.write(log.upper())
 
     # OPERATIONS 
@@ -355,7 +391,7 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # branch if carry set
@@ -364,7 +400,7 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # branch if equal
@@ -373,7 +409,7 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # bit test [A&M, N=M7, V=M6]
@@ -390,7 +426,7 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # branch not equal
@@ -399,7 +435,7 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # branch if positive
@@ -408,16 +444,18 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # force interrupt
     def brk(self, mode):
         #push status flags and PC
-        self.pushStack((self.PC >> 8) & 0xFF)
-        self.pushStack(self.PC & 0xFF)
-        self.pushStack(self.getProcessorStatus())
-        irq = self.memory.read16(0xfffe)
+        return_pc = (self.PC + 2) & 0xFFFF
+        self.pushStack((return_pc >> 8) & 0xFF)
+        self.pushStack(return_pc & 0xFF)
+        self.pushStack(self.getProcessorStatus() | 0x10)
+        self.I = 1
+        irq = self.bus.read16(0xfffe)
         self.PC = irq
         self.B = 1;
 
@@ -427,7 +465,7 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # branch if overflow set
@@ -436,7 +474,7 @@ class CPU:
             self.PC += 2
             return
         relAddr = mode.get()
-        self.cycles += 3*mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 3
+        self.cycles += mode.crossPageCycles if ((self.PC+2) >> 8) != (relAddr >> 8) else 1
         self.PC = relAddr
 
     # clear carry flag
@@ -461,7 +499,7 @@ class CPU:
         self.C = self.A >= operand
         diff = (self.A - operand) & 0xFF
         self.setZN(diff)
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
 
     # compare X register [Z,C,N = X-M]
@@ -498,7 +536,7 @@ class CPU:
     def eor(self, mode):
         self.A = self.A ^ mode.get()
         self.setZN(self.A)
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
     # increment memory [M,Z,N = M+1]
     def inc(self, mode):
@@ -533,25 +571,25 @@ class CPU:
         self.A = value
         self.X = value
         self.setZN(self.A)
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
     # load accumulator [A,Z,N = M]
     def lda(self, mode):
         self.A = mode.get()
         self.setZN(self.A)
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
     # load X register [X,Z,N = M]
     def ldx(self, mode):
         self.X = mode.get()
         self.setZN(self.X)
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
     # load Y register
     def ldy(self, mode):
         self.Y = mode.get()
         self.setZN(self.Y)
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
     # logical right shift
     def lsr(self, mode):
@@ -570,7 +608,7 @@ class CPU:
         result = self.A | mode.get()
         self.setZN(result)
         self.A = result & 0xFF
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
     # push accumulator
     def pha(self, mode):
@@ -578,7 +616,7 @@ class CPU:
 
     # push processor status
     def php(self, mode):
-        self.pushStack(self.getProcessorStatus())
+        self.pushStack(self.getProcessorStatus() | 0x10)
 
     # pull accumulator
     def pla(self, mode):
@@ -625,7 +663,7 @@ class CPU:
         self.V = int(((self.A ^ value) & 0x80 != 0) and ((self.A ^ result) & 0x80 != 0))
         self.A = result & 0xFF
         self.setZN(result)
-        self.cycles += 3*mode.getCrossPageCycles(self.PC + 1)
+        self.cycles += mode.getCrossPageCycles(self.PC + 1)
 
     # set carry flag
     def sec(self, mode):
@@ -662,7 +700,7 @@ class CPU:
 
     # transfer SP to X
     def tsx(self, mode):
-        self.X = self.SP
+        self.X = self.SP & 0xFF
         self.setZN(self.X)
 
     # transfer X to A

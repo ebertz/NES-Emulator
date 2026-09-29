@@ -1,7 +1,9 @@
 import unittest
 import os, sys
+from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cpu import *
+from rom import ROM
 
 class AddressingModeTests(unittest.TestCase):
 	def setUp(self):
@@ -612,7 +614,8 @@ class InstructionTests(unittest.TestCase):
 
 class ROMTests(unittest.TestCase):
 	def testROM(self):
-		cpu = CPU()
+		rom_path = Path(__file__).resolve().parent / "testROMs" / "nestest.nes"
+		cpu = CPU(ROM(rom_path))
 		cpu.PC = 0xc000
 		for x in range(5000):
 			try:

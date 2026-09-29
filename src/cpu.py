@@ -314,12 +314,10 @@ class CPU:
         self.SP = 0x100 + (value & 0xFF)
 
     def peek(self, address):
-        peek = getattr(self.bus, "peek", None)
-        return peek(address) if peek is not None else self.bus.read(address)
+        return self.bus.peek(address)
 
     def peek16(self, address):
-        peek16 = getattr(self.bus, "peek16", None)
-        return peek16(address) if peek16 is not None else self.bus.read16(address)
+        return self.bus.peek16(address)
 
     def fetch(self):
         opcode = self.bus.read(self.PC)

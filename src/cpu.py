@@ -352,7 +352,11 @@ class CPU:
         log += ' ' * (48 - len(log))
         ppu_cycle = (self.cycles * 3) % 341
         spaces = '  ' if ppu_cycle < 10 else (' ' if ppu_cycle < 100 else '')
-        log+= ' A:{:02x} X:{:02x} Y:{:02x} P:{:02x} SP:{:02x} CYC:{}{}\n'.format(self.A, self.X, self.Y, self.getProcessorStatus(), self.SP, spaces, ppu_cycle)
+        status = self.getProcessorStatus() & ~0x10
+        log += (
+            ' A:{:02x} X:{:02x} Y:{:02x} P:{:02x} SP:{:02x} CYC:{}{}\n'
+            .format(self.A, self.X, self.Y, status, self.SP, spaces, ppu_cycle)
+        )
         self.logFile.write(log.upper())
 
     # OPERATIONS 
@@ -613,7 +617,7 @@ class CPU:
 
     # push processor status
     def php(self, mode):
-        self.pushStack(self.getProcessorStatus())
+        self.pushStack(self.getProcessorStatus() | 0x10)
 
     # pull accumulator
     def pla(self, mode):
@@ -697,7 +701,7 @@ class CPU:
 
     # transfer SP to X
     def tsx(self, mode):
-        self.X = self.SP
+        self.X = self.SP & 0xFF
         self.setZN(self.X)
 
     # transfer X to A

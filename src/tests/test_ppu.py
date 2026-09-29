@@ -13,6 +13,23 @@ from rom import INESHeader, ROM  # noqa: E402
 from test_rom import make_ines  # noqa: E402
 
 
+_UNSUPPORTED_MIRRORING = object()
+
+
+class _StubMapperUnsupportedMirroring:
+    """Mapper whose mirroring is not a Mirroring enum member (PPU must refuse)."""
+
+    @property
+    def mirroring(self):
+        return _UNSUPPORTED_MIRRORING
+
+    def ppu_read(self, addr):
+        return 0
+
+    def ppu_write(self, addr, value):
+        pass
+
+
 def _nrom_mapper(mirroring=Mirroring.HORIZONTAL, chr_banks=0):
     header = INESHeader(
         prg_rom_banks=1,
@@ -296,6 +313,18 @@ class PPUNametableMirroringTests(unittest.TestCase):
         ppu = PPU()
         ppu.write_vram(0x2005, 0x11)
         self.assertEqual(ppu.read_vram(0x3005), 0x11)
+
+    def test_unsupported_mirroring_raises_on_nametable_read(self):
+        ppu = PPU(_StubMapperUnsupportedMirroring())
+        with self.assertRaises(ValueError) as ctx:
+            ppu.read_vram(0x2000)
+        self.assertIn(repr(_UNSUPPORTED_MIRRORING), str(ctx.exception))
+
+    def test_unsupported_mirroring_raises_on_nametable_write(self):
+        ppu = PPU(_StubMapperUnsupportedMirroring())
+        with self.assertRaises(ValueError) as ctx:
+            ppu.write_vram(0x2000, 1)
+        self.assertIn(repr(_UNSUPPORTED_MIRRORING), str(ctx.exception))
 
 
 class PPUPatternTableTests(unittest.TestCase):

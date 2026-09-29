@@ -1,4 +1,8 @@
+from collections import deque
+
+
 CPU_FREQUENCY = 1_789_773
+PCM_BUFFER_CAPACITY = 44_100
 LENGTH_TABLE = (
     10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14,
     12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30,
@@ -292,10 +296,9 @@ class APU:
         self.noise = Noise()
         self.dmc = DMC(lambda address: self.memory_reader(address))
         self._registers = bytearray(0x20)
-        self.samples = []
-        self.channel_samples = {
-            "pulse1": [], "pulse2": [], "triangle": [], "noise": [], "dmc": [],
-        }
+        # Frontends are expected to drain once per rendered frame. Keep a
+        # bounded fallback so a paused or absent frontend cannot exhaust RAM.
+        self.samples = deque(maxlen=PCM_BUFFER_CAPACITY)
         self._cycles = 0
         self._frame_cycle = 0
         self._sample_phase = 0
@@ -415,16 +418,15 @@ class APU:
         return max(-32768, min(32767, round((pulse + tnd) * 32767)))
 
     def _emit_sample(self):
-        values = {
-            "pulse1": self.pulse1.output,
-            "pulse2": self.pulse2.output,
-            "triangle": self.triangle.output,
-            "noise": self.noise.output,
-            "dmc": self.dmc.output,
-        }
-        for name, value in values.items():
-            self.channel_samples[name].append(value)
-        self.samples.append(self.mix_sample(*values.values()))
+        self.samples.append(
+            self.mix_sample(
+                self.pulse1.output,
+                self.pulse2.output,
+                self.triangle.output,
+                self.noise.output,
+                self.dmc.output,
+            )
+        )
 
     def step(self, cycles=1):
         if cycles < 0:
@@ -444,15 +446,8 @@ class APU:
                 self._emit_sample()
 
     def drain_samples(self):
-        result = self.samples
-        self.samples = []
-        return result
-
-    def drain_channel_samples(self, channel):
-        if channel not in self.channel_samples:
-            raise ValueError(f"unknown APU channel: {channel}")
-        result = self.channel_samples[channel]
-        self.channel_samples[channel] = []
+        result = list(self.samples)
+        self.samples.clear()
         return result
 
     @property

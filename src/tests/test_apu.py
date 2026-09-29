@@ -5,7 +5,7 @@ import unittest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from apu import APU, CPU_FREQUENCY  # noqa: E402
+from apu import APU, CPU_FREQUENCY, PCM_BUFFER_CAPACITY  # noqa: E402
 from console import Console  # noqa: E402
 
 
@@ -66,14 +66,6 @@ class APURegisterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cycles must not be negative"):
             APU().step(-1)
 
-    def test_unknown_channel_name_is_rejected_without_losing_samples(self):
-        apu = configured_apu()
-        apu.step(2)
-        with self.assertRaisesRegex(ValueError, "unknown APU channel"):
-            apu.drain_channel_samples("square")
-        self.assertEqual(len(apu.channel_samples["pulse1"]), 2)
-
-
 class APUSynthesisTests(unittest.TestCase):
     EXPECTED_DIGESTS = {
         "pulse1": "73c73196608c9504d9101606db316e2add110290da4fac5b6eeaa06ddee9c581",
@@ -85,13 +77,20 @@ class APUSynthesisTests(unittest.TestCase):
 
     def test_fixture_program_produces_deterministic_channel_buffers(self):
         apu = configured_apu()
-        apu.step(8_000)
+        samples = {channel: [] for channel in self.EXPECTED_DIGESTS}
+        for _ in range(8_000):
+            apu.step()
+            samples["pulse1"].append(apu.pulse1.output)
+            samples["pulse2"].append(apu.pulse2.output)
+            samples["triangle"].append(apu.triangle.output)
+            samples["noise"].append(apu.noise.output)
+            samples["dmc"].append(apu.dmc.output)
 
         for channel, expected in self.EXPECTED_DIGESTS.items():
-            samples = apu.drain_channel_samples(channel)
-            digest = hashlib.sha256(bytes(samples)).hexdigest()
+            channel_samples = samples[channel]
+            digest = hashlib.sha256(bytes(channel_samples)).hexdigest()
             self.assertEqual(digest, expected, channel)
-            self.assertTrue(any(samples), channel)
+            self.assertTrue(any(channel_samples), channel)
 
     def test_mixer_produces_bounded_signed_pcm_and_silence_is_zero(self):
         self.assertEqual(APU.mix_sample(0, 0, 0, 0, 0), 0)
@@ -132,6 +131,12 @@ class APUSynthesisTests(unittest.TestCase):
 
         self.assertEqual(len(samples), 8)
         self.assertEqual(apu.drain_samples(), [])
+
+    def test_pcm_buffer_discards_old_audio_instead_of_growing_unbounded(self):
+        apu = configured_apu()
+        apu.step(PCM_BUFFER_CAPACITY + 1)
+
+        self.assertEqual(len(apu.drain_samples()), PCM_BUFFER_CAPACITY)
 
     def test_console_clocks_apu_for_each_elapsed_cpu_cycle(self):
         console = Console()

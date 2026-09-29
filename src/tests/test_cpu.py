@@ -293,6 +293,18 @@ class InstructionTests(unittest.TestCase):
 		self.cpu.execute(*self.cpu.instructions[0x00])
 		assert self.cpu.PC == WORK
 
+	def test_brk_pushes_break_status_and_masks_interrupts(self):
+		self.cpu.PC = 0x1000
+		self.cpu.B = 0
+		self.cpu.I = 0
+
+		self.cpu.execute(*self.cpu.instructions[0x00])
+
+		pushed_status = self.memory.read(self.cpu.SP + 1)
+		self.assertEqual(pushed_status & 0x10, 0x10)
+		self.assertEqual(pushed_status & 0x20, 0x20)
+		self.assertEqual(self.cpu.I, 1)
+
 	def test_bit_test(self):
 		print('TODO: test_bit')
 		self.cpu.PC = 0x1000
@@ -558,7 +570,7 @@ class InstructionTests(unittest.TestCase):
 		assert self.cpu.PC == WORK
 		self.cpu.execute(*self.cpu.instructions[0x40])
 		assert self.cpu.PC == 0x1002
-		assert self.cpu.getProcessorStatus() == 0x2F
+		assert self.cpu.getProcessorStatus() == 0x3F
 
 
 	def test_rts(self):

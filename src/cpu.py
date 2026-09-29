@@ -453,7 +453,8 @@ class CPU:
         return_pc = (self.PC + 2) & 0xFFFF
         self.pushStack((return_pc >> 8) & 0xFF)
         self.pushStack(return_pc & 0xFF)
-        self.pushStack(self.getProcessorStatus())
+        self.pushStack(self.getProcessorStatus() | 0x10)
+        self.I = 1
         irq = self.bus.read16(0xfffe)
         self.PC = irq
         self.B = 1;

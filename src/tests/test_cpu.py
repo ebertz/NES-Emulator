@@ -510,7 +510,7 @@ class InstructionTests(unittest.TestCase):
 		self.cpu.execute(*self.cpu.instructions[0x00])
 		assert self.cpu.PC == 0x2000
 		self.cpu.execute(*self.cpu.instructions[0x40])
-		assert self.cpu.PC == 0x1001
+		assert self.cpu.PC == 0x1002
 		assert self.cpu.getProcessorStatus() == 0x2F
 
 

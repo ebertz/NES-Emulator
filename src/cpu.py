@@ -448,7 +448,7 @@ class CPU:
     # force interrupt
     def brk(self, mode):
         #push status flags and PC
-        return_pc = (self.PC + 1) & 0xFFFF
+        return_pc = (self.PC + 2) & 0xFFFF
         self.pushStack((return_pc >> 8) & 0xFF)
         self.pushStack(return_pc & 0xFF)
         self.pushStack(self.getProcessorStatus())

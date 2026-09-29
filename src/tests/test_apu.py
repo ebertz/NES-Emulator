@@ -1,12 +1,16 @@
 import hashlib
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from apu import APU, CPU_FREQUENCY, PCM_BUFFER_CAPACITY  # noqa: E402
 from console import Console  # noqa: E402
+from rom import ROM  # noqa: E402
+from test_rom import make_ines  # noqa: E402
 
 
 def configured_apu():
@@ -148,6 +152,48 @@ class APUSynthesisTests(unittest.TestCase):
         cycles = console.step()
 
         self.assertEqual(len(console.apu.drain_samples()), cycles)
+
+    def test_console_dmc_fetches_sample_memory_from_cartridge_bus(self):
+        # Regression N4T8-R1-dmc-bus-wiring-unpinned: Console must wire
+        # apu.memory_reader to bus.read so DMC DMA reads PRG bytes.
+        sample_cpu_addr = 0xC800
+        sample_byte = 0xBD
+        prg = bytearray(b"\x00" * 0x4000)
+        prg[(sample_cpu_addr - 0x8000) % len(prg)] = sample_byte
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "dmc_sample.nes"
+        path.write_bytes(make_ines(prg=bytes(prg)))
+
+        console = Console(ROM(path))
+        self.addCleanup(console.cpu.logFile.close)
+        console.cpu.debug = False
+        console.bus.write(0, 0xEA)
+
+        self.assertEqual(console.bus.read(sample_cpu_addr), sample_byte)
+
+        console.bus.write(0x4010, 0x0F)
+        console.bus.write(0x4011, 0x40)
+        console.bus.write(0x4012, 0x20)
+        console.bus.write(0x4013, 0x00)
+        console.bus.write(0x4015, 0x10)
+
+        elapsed = 0
+        for _ in range(200):
+            elapsed += console.step()
+
+        oracle = APU(sample_rate=CPU_FREQUENCY, memory_reader=lambda _addr: sample_byte)
+        oracle.write_register(0x4010, 0x0F)
+        oracle.write_register(0x4011, 0x40)
+        oracle.write_register(0x4012, 0x20)
+        oracle.write_register(0x4013, 0x00)
+        oracle.write_register(0x4015, 0x10)
+        oracle.step(elapsed)
+
+        self.assertEqual(console.apu.dmc.output, oracle.dmc.output)
+        self.assertEqual(console.apu.dmc.bytes_remaining, oracle.dmc.bytes_remaining)
+        self.assertEqual(console.apu.dmc.bytes_remaining, 0)
 
 
 if __name__ == "__main__":

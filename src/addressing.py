@@ -35,10 +35,10 @@ class Immediate(AddressingMode):
 		super().__init__(2, cpu, 0)
 
 	def read(self, address):
-		return self.cpu.memory.read(address)
+		return self.cpu.bus.read(address)
 
 	def format(self):
-		return '#${:02x}'.format(self.get())
+		return '#${:02x}'.format(self.cpu.peek(self.cpu.PC + 1))
 
 class Accumulator(AddressingMode):
 	def __init__(self, cpu):
@@ -55,168 +55,176 @@ class ZeroPage(AddressingMode):
 		super().__init__(2, cpu, 0)
 
 	def read(self, address):
-		return self.cpu.memory.read(self.cpu.memory.read(address) & 0xFF)
+		return self.cpu.bus.read(self.cpu.bus.read(address) & 0xFF)
 
 	def write(self, address, value):
-		self.cpu.memory.write(self.cpu.memory.read(address) & 0xFF, value)
+		self.cpu.bus.write(self.cpu.bus.read(address) & 0xFF, value)
 
 	def format(self):
-		return '${:02x}'.format(self.cpu.memory.read(self.cpu.PC + 1))
+		return '${:02x}'.format(self.cpu.peek(self.cpu.PC + 1))
 
 class ZeroPageX(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(2, cpu, 0)
 
 	def read(self, address):
-		return self.cpu.memory.read((self.cpu.memory.read(address) + self.cpu.X) & 0xFF)
+		return self.cpu.bus.read((self.cpu.bus.read(address) + self.cpu.X) & 0xFF)
 
 	def write(self, address, value):
-		self.cpu.memory.write((self.cpu.memory.read(address) + self.cpu.X) & 0xFF, value)
+		self.cpu.bus.write((self.cpu.bus.read(address) + self.cpu.X) & 0xFF, value)
 
 class ZeroPageY(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(2, cpu, 0)
 
 	def read(self, address):
-		return self.cpu.memory.read((self.cpu.memory.read(address) + self.cpu.Y) & 0xFF)
+		return self.cpu.bus.read((self.cpu.bus.read(address) + self.cpu.Y) & 0xFF)
 
 	def write(self, address, value):
-		self.cpu.memory.write((self.cpu.memory.read(address) + self.cpu.Y) & 0xFF, value)
+		self.cpu.bus.write((self.cpu.bus.read(address) + self.cpu.Y) & 0xFF, value)
 
 class Absolute(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(3, cpu, 0)
 
 	def read(self, address):
-		return self.cpu.memory.read(self.cpu.memory.read16(address))
+		return self.cpu.bus.read(self.cpu.bus.read16(address))
 
 	def write(self, address, value):
-		self.cpu.memory.write(self.cpu.memory.read16(address), value)
+		self.cpu.bus.write(self.cpu.bus.read16(address), value)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 
 class AbsoluteX(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(3, cpu, 1)
 
 	def read(self, address):
-		return self.cpu.memory.read(self.cpu.memory.read16(address) + self.cpu.X)
+		return self.cpu.bus.read(self.cpu.bus.read16(address) + self.cpu.X)
 
 	def write(self, address, value):
-		self.cpu.memory.write(self.cpu.memory.read16(address) + self.cpu.X, value)
+		self.cpu.bus.write(self.cpu.bus.read16(address) + self.cpu.X, value)
 
 	def getCrossPageCycles(self, address):
-		a = self.cpu.memory.read16(address)
+		a = self.cpu.bus.read16(address)
 		if (a + self.cpu.X) >> 8 != a >> 8:
 			return 1
 		return 0
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		address = (self.cpu.peek16(self.cpu.PC + 1) + self.cpu.X) & 0xFFFF
+		return '${:04x}'.format(address)
 
 class AbsoluteY(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(3, cpu, 1)
 
 	def read(self, address):
-		return self.cpu.memory.read((self.cpu.memory.read16(address) + self.cpu.Y) % 0x10000)
+		return self.cpu.bus.read((self.cpu.bus.read16(address) + self.cpu.Y) % 0x10000)
 
 	def write(self, address, value):
-		self.cpu.memory.write(self.cpu.memory.read16(address)+ self.cpu.Y, value)
+		self.cpu.bus.write(self.cpu.bus.read16(address)+ self.cpu.Y, value)
 
 	def getCrossPageCycles(self, address):
-		a = self.cpu.memory.read16(address)
+		a = self.cpu.bus.read16(address)
 		if (a + self.cpu.Y) >> 8 != a >> 8:
 			return 1
 		return 0
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		address = (self.cpu.peek16(self.cpu.PC + 1) + self.cpu.Y) & 0xFFFF
+		return '${:04x}'.format(address)
 
 class Indirect(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(3, cpu, 0)
 
 	def read(self, address):
-		indirect_address = self.cpu.memory.read16(address)
-		return self.cpu.memory.read16(indirect_address)
+		indirect_address = self.cpu.bus.read16(address)
+		return self.cpu.bus.read16(indirect_address)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 # X is added before indirection
 class IndirectX(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(2, cpu, 0)
 
 	def read(self, address):
-		indirect_address = (self.cpu.memory.read(address) + self.cpu.X) % 0x100
-		return self.cpu.memory.read(self.cpu.memory.read16(indirect_address))
+		indirect_address = (self.cpu.bus.read(address) + self.cpu.X) % 0x100
+		return self.cpu.bus.read(self.cpu.bus.read16(indirect_address))
 
 	def write(self, address, value):
-		indirect_address = (self.cpu.memory.read(address) + self.cpu.X) % 0x100
-		self.cpu.memory.write(self.cpu.memory.read16(indirect_address), value)
+		indirect_address = (self.cpu.bus.read(address) + self.cpu.X) % 0x100
+		self.cpu.bus.write(self.cpu.bus.read16(indirect_address), value)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		pointer = (self.cpu.peek(self.cpu.PC + 1) + self.cpu.X) & 0xFF
+		return '${:04x}'.format(self.cpu.peek16(pointer))
 # Y is added after indirection
 class IndirectY(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(2, cpu, 1)
 
 	def read(self, address):
-		indirect_address = self.cpu.memory.read(address) 
-		return self.cpu.memory.read((self.cpu.memory.read16(indirect_address) + self.cpu.Y) % 0x10000)
+		indirect_address = self.cpu.bus.read(address)
+		return self.cpu.bus.read((self.cpu.bus.read16(indirect_address) + self.cpu.Y) % 0x10000)
 
 	def write(self, address, value):
-		indirect_address = self.cpu.memory.read16(self.cpu.memory.read(address))
-		self.cpu.memory.write((indirect_address + self.cpu.Y) % 0x10000, value)
+		indirect_address = self.cpu.bus.read16(self.cpu.bus.read(address))
+		self.cpu.bus.write((indirect_address + self.cpu.Y) % 0x10000, value)
 
 	def getCrossPageCycles(self, address):
-		indirect_address = self.cpu.memory.read(address)
+		indirect_address = self.cpu.bus.read(address)
 		if indirect_address == 0xFF: return 1
-		if self.cpu.memory.read(indirect_address) == 0xFF: return 1 
+		if self.cpu.bus.read(indirect_address) == 0xFF: return 1
 		return 0
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		pointer = self.cpu.peek(self.cpu.PC + 1)
+		address = (self.cpu.peek16(pointer) + self.cpu.Y) & 0xFFFF
+		return '${:04x}'.format(address)
 
 class Relative(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(0, cpu, 2) #TODO: check branch behavior
 
 	def read(self, address):
-		offset = self.cpu.memory.read(address)
+		offset = self.cpu.bus.read(address)
 		if offset > 0x7F: offset -= 256
 		return (self.cpu.PC + offset + 2) & 0xFFFF
 	
 	def format(self):
-		return '${:04x}'.format(self.get())
+		offset = self.cpu.peek(self.cpu.PC + 1)
+		if offset > 0x7F:
+			offset -= 256
+		return '${:04x}'.format((self.cpu.PC + offset + 2) & 0xFFFF)
 
 class JumpAbsolute(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(0, cpu, 0)
 
 	def read(self, address):
-		return self.cpu.memory.read16(address)
+		return self.cpu.bus.read16(address)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 
 class JumpIndirect(AddressingMode):
 	def __init__(self, cpu):
 		super().__init__(0, cpu, 0)
 
 	def read(self, address):
-		indirect_address = self.cpu.memory.read16(address)
+		indirect_address = self.cpu.bus.read16(address)
 		#simulate a known CPU bug
 		if indirect_address & 0xFF == 0xFF:
-			return self.cpu.memory.read(indirect_address) + (self.cpu.memory.read(indirect_address & 0xFF00) << 8)
+			return self.cpu.bus.read(indirect_address) + (self.cpu.bus.read(indirect_address & 0xFF00) << 8)
 
-		return self.cpu.memory.read16(indirect_address)
+		return self.cpu.bus.read16(indirect_address)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 
 class NONE(AddressingMode):
 	def __init__(self, cpu):

@@ -8,7 +8,15 @@ class Memory:
 	def read(self, address):
 		return self.memory[address]
 
+	def peek(self, address):
+		return self.memory[address]
+
 	def read16(self, address):
+		if address == 0xFF:
+			return self.memory[address] + (self.memory[0] << 8)
+		return self.memory[address] + (self.memory[address + 1] << 8)
+
+	def peek16(self, address):
 		if address == 0xFF:
 			return self.memory[address] + (self.memory[0] << 8)
 		return self.memory[address] + (self.memory[address + 1] << 8)

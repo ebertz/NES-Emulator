@@ -13,9 +13,12 @@ class Controller:
             self._shift_register = self.buttons & 0xFF
 
     def read(self):
-        if self._strobe:
-            self._shift_register = self.buttons & 0xFF
-        value = self._shift_register & 1
+        value = self.peek()
         if not self._strobe:
             self._shift_register = (self._shift_register >> 1) | 0x80
         return value
+
+    def peek(self):
+        if self._strobe:
+            return self.buttons & 1
+        return self._shift_register & 1

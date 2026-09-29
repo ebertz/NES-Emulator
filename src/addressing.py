@@ -38,7 +38,7 @@ class Immediate(AddressingMode):
 		return self.cpu.bus.read(address)
 
 	def format(self):
-		return '#${:02x}'.format(self.get())
+		return '#${:02x}'.format(self.cpu.peek(self.cpu.PC + 1))
 
 class Accumulator(AddressingMode):
 	def __init__(self, cpu):
@@ -61,7 +61,7 @@ class ZeroPage(AddressingMode):
 		self.cpu.bus.write(self.cpu.bus.read(address) & 0xFF, value)
 
 	def format(self):
-		return '${:02x}'.format(self.cpu.bus.read(self.cpu.PC + 1))
+		return '${:02x}'.format(self.cpu.peek(self.cpu.PC + 1))
 
 class ZeroPageX(AddressingMode):
 	def __init__(self, cpu):
@@ -94,7 +94,7 @@ class Absolute(AddressingMode):
 		self.cpu.bus.write(self.cpu.bus.read16(address), value)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 
 class AbsoluteX(AddressingMode):
 	def __init__(self, cpu):
@@ -113,7 +113,8 @@ class AbsoluteX(AddressingMode):
 		return 0
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		address = (self.cpu.peek16(self.cpu.PC + 1) + self.cpu.X) & 0xFFFF
+		return '${:04x}'.format(address)
 
 class AbsoluteY(AddressingMode):
 	def __init__(self, cpu):
@@ -132,7 +133,8 @@ class AbsoluteY(AddressingMode):
 		return 0
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		address = (self.cpu.peek16(self.cpu.PC + 1) + self.cpu.Y) & 0xFFFF
+		return '${:04x}'.format(address)
 
 class Indirect(AddressingMode):
 	def __init__(self, cpu):
@@ -143,7 +145,7 @@ class Indirect(AddressingMode):
 		return self.cpu.bus.read16(indirect_address)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 # X is added before indirection
 class IndirectX(AddressingMode):
 	def __init__(self, cpu):
@@ -158,7 +160,8 @@ class IndirectX(AddressingMode):
 		self.cpu.bus.write(self.cpu.bus.read16(indirect_address), value)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		pointer = (self.cpu.peek(self.cpu.PC + 1) + self.cpu.X) & 0xFF
+		return '${:04x}'.format(self.cpu.peek16(pointer))
 # Y is added after indirection
 class IndirectY(AddressingMode):
 	def __init__(self, cpu):
@@ -179,7 +182,9 @@ class IndirectY(AddressingMode):
 		return 0
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		pointer = self.cpu.peek(self.cpu.PC + 1)
+		address = (self.cpu.peek16(pointer) + self.cpu.Y) & 0xFFFF
+		return '${:04x}'.format(address)
 
 class Relative(AddressingMode):
 	def __init__(self, cpu):
@@ -191,7 +196,10 @@ class Relative(AddressingMode):
 		return (self.cpu.PC + offset + 2) & 0xFFFF
 	
 	def format(self):
-		return '${:04x}'.format(self.get())
+		offset = self.cpu.peek(self.cpu.PC + 1)
+		if offset > 0x7F:
+			offset -= 256
+		return '${:04x}'.format((self.cpu.PC + offset + 2) & 0xFFFF)
 
 class JumpAbsolute(AddressingMode):
 	def __init__(self, cpu):
@@ -201,7 +209,7 @@ class JumpAbsolute(AddressingMode):
 		return self.cpu.bus.read16(address)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 
 class JumpIndirect(AddressingMode):
 	def __init__(self, cpu):
@@ -216,7 +224,7 @@ class JumpIndirect(AddressingMode):
 		return self.cpu.bus.read16(indirect_address)
 
 	def format(self):
-		return '${:04x}'.format(self.get())
+		return '${:04x}'.format(self.cpu.peek16(self.cpu.PC + 1))
 
 class NONE(AddressingMode):
 	def __init__(self, cpu):

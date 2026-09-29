@@ -24,12 +24,7 @@ class PPU:
     def read_register(self, reg):
         reg &= 0x07
         if reg == 2:
-            value = (
-                (int(self.vblank) << 7)
-                | (int(self.sprite_zero_hit) << 6)
-                | (int(self.sprite_overflow) << 5)
-                | (self._data_latch & 0x1F)
-            )
+            value = self.peek_register(reg)
             self.vblank = False
             self.w = 0
             self._data_latch = value
@@ -40,6 +35,20 @@ class PPU:
             return value
         if reg == 7:
             return self._data_latch
+        return self._data_latch
+
+    def peek_register(self, reg):
+        """Read a CPU-visible register without changing PPU state."""
+        reg &= 0x07
+        if reg == 2:
+            return (
+                (int(self.vblank) << 7)
+                | (int(self.sprite_zero_hit) << 6)
+                | (int(self.sprite_overflow) << 5)
+                | (self._data_latch & 0x1F)
+            )
+        if reg == 4:
+            return self.oam[self.oamaddr]
         return self._data_latch
 
     def write_register(self, reg, value):

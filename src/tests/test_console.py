@@ -76,6 +76,32 @@ class ConsoleTests(unittest.TestCase):
             513 * 3,
         )
 
+    def test_debug_trace_does_not_read_ppu_status_before_instruction(self):
+        self.console = Console()
+        self.console.cpu.A = 0xFF
+        self.console.ppu.vblank = True
+        self.console.bus.write(0x0000, 0x2C)
+        self.console.bus.write(0x0001, 0x02)
+        self.console.bus.write(0x0002, 0x20)
+
+        self.console.step()
+
+        self.assertEqual(self.console.cpu.N, 1)
+        self.assertFalse(self.console.ppu.vblank)
+
+    def test_debug_trace_does_not_shift_controller_before_instruction(self):
+        self.console = Console()
+        self.console.controllers[0].buttons = 0b00000001
+        self.console.bus.write(0x4016, 1)
+        self.console.bus.write(0x4016, 0)
+        self.console.bus.write(0x0000, 0xAD)
+        self.console.bus.write(0x0001, 0x16)
+        self.console.bus.write(0x0002, 0x40)
+
+        self.console.step()
+
+        self.assertEqual(self.console.cpu.A & 1, 1)
+
 
 class InterruptTests(unittest.TestCase):
     def setUp(self):

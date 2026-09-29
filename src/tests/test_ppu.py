@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sys
 import tempfile
@@ -57,6 +58,150 @@ def _dots_per_frame(ppu):
 def _advance_to(ppu, scanline, dot):
     while ppu.scanline != scanline or ppu.dot != dot:
         ppu.step()
+
+
+def _run_one_frame(ppu):
+    start_frame = ppu.frame
+    while ppu.frame == start_frame:
+        ppu.step()
+
+
+def _fill_tile_pattern(mapper, tile_index=0, plane0=0xFF, plane1=0x00):
+    base = tile_index * 16
+    for row in range(8):
+        mapper.ppu_write(base + row, plane0)
+        mapper.ppu_write(base + 8 + row, plane1)
+
+
+def _setup_uniform_nametable(ppu, tile=0, attribute=0):
+    for offset in range(960):
+        ppu.write_vram(0x2000 + offset, tile)
+    for offset in range(64):
+        ppu.write_vram(0x23C0 + offset, attribute)
+
+
+def _enable_background_rendering(ppu, mask=0x0A):
+    ppu.ctrl = 0
+    ppu.mask = mask
+    ppu.t = 0
+    ppu.v = 0
+    ppu.scanline = 0
+    ppu.dot = 0
+
+
+# Synthetic CHR/nametable fixture: solid tile 0 -> palette entry 1 (0x30).
+_BACKGROUND_BACKDROP = 0x0F
+_BACKGROUND_TILE_COLOR = 0x30
+_BACKGROUND_FRAME_SHA256 = (
+    "ef8a2e28b8c80ce812becd0228bd36632f6b3bd10e75bf022e470a332ad68184"
+)
+
+
+def _idle_nrom_ines():
+    """CHR-RAM cartridge whose reset vector lands in an all-NOP PRG bank."""
+    prg = bytearray([0xEA] * 0x4000)
+    prg[-4] = 0x00
+    prg[-3] = 0x80
+    return make_ines(prg=bytes(prg), chr_data=b"")
+
+
+class PPUBackgroundRenderingTests(unittest.TestCase):
+    def _ppu_with_chr_ram(self):
+        mapper = _nrom_mapper(chr_banks=0)
+        return PPU(mapper), mapper
+
+    def test_visible_scanline_fills_256_background_pixels(self):
+        ppu, mapper = self._ppu_with_chr_ram()
+        _fill_tile_pattern(mapper, plane0=0xFF)
+        _setup_uniform_nametable(ppu)
+        ppu.write_vram(0x3F00, _BACKGROUND_BACKDROP)
+        ppu.write_vram(0x3F01, _BACKGROUND_TILE_COLOR)
+        _enable_background_rendering(ppu, mask=0x0A)
+        _run_one_frame(ppu)
+
+        row = ppu.frame_buffer[0:256]
+        self.assertEqual(len(row), 256)
+        self.assertEqual(bytes(row), bytes([_BACKGROUND_TILE_COLOR] * 256))
+
+    def test_left_column_mask_keeps_backdrop_in_first_eight_pixels(self):
+        ppu, mapper = self._ppu_with_chr_ram()
+        _fill_tile_pattern(mapper, plane0=0xFF)
+        _setup_uniform_nametable(ppu)
+        ppu.write_vram(0x3F00, _BACKGROUND_BACKDROP)
+        ppu.write_vram(0x3F01, _BACKGROUND_TILE_COLOR)
+        _enable_background_rendering(ppu, mask=0x08)
+        _run_one_frame(ppu)
+
+        self.assertEqual(bytes(ppu.frame_buffer[0:8]), bytes([_BACKGROUND_BACKDROP] * 8))
+        self.assertEqual(ppu.frame_buffer[8], _BACKGROUND_TILE_COLOR)
+
+    def test_fine_x_scroll_shifts_pattern_fetch_within_tile(self):
+        ppu, mapper = self._ppu_with_chr_ram()
+        _fill_tile_pattern(mapper, plane0=0x81)
+        _setup_uniform_nametable(ppu)
+        ppu.write_vram(0x3F00, _BACKGROUND_BACKDROP)
+        ppu.write_vram(0x3F01, _BACKGROUND_TILE_COLOR)
+        _enable_background_rendering(ppu, mask=0x0A)
+        ppu.read_register(2)
+        ppu.write_register(5, 0x00)
+        ppu.write_register(5, 0x00)
+        _run_one_frame(ppu)
+        self.assertEqual(ppu.frame_buffer[0], _BACKGROUND_TILE_COLOR)
+
+        ppu, mapper = self._ppu_with_chr_ram()
+        _fill_tile_pattern(mapper, plane0=0x81)
+        _setup_uniform_nametable(ppu)
+        ppu.write_vram(0x3F00, _BACKGROUND_BACKDROP)
+        ppu.write_vram(0x3F01, _BACKGROUND_TILE_COLOR)
+        _enable_background_rendering(ppu, mask=0x0A)
+        ppu.read_register(2)
+        ppu.write_register(5, 0x05)
+        ppu.write_register(5, 0x00)
+        _run_one_frame(ppu)
+        self.assertEqual(ppu.frame_buffer[0], _BACKGROUND_BACKDROP)
+
+    def test_attribute_byte_selects_sub_palette_for_tile_quadrant(self):
+        ppu, mapper = self._ppu_with_chr_ram()
+        _fill_tile_pattern(mapper, plane0=0xFF)
+        _setup_uniform_nametable(ppu, attribute=0x02)
+        ppu.write_vram(0x3F00, _BACKGROUND_BACKDROP)
+        ppu.write_vram(0x3F01, _BACKGROUND_TILE_COLOR)
+        ppu.write_vram(0x3F09, 0x55)
+        _enable_background_rendering(ppu, mask=0x0A)
+        _run_one_frame(ppu)
+
+        self.assertEqual(ppu.frame_buffer[0], 0x15)
+
+    def test_first_frame_buffer_sha256_matches_synthetic_fixture(self):
+        ppu, mapper = self._ppu_with_chr_ram()
+        _fill_tile_pattern(mapper, plane0=0xFF)
+        _setup_uniform_nametable(ppu)
+        ppu.write_vram(0x3F00, _BACKGROUND_BACKDROP)
+        ppu.write_vram(0x3F01, _BACKGROUND_TILE_COLOR)
+        _enable_background_rendering(ppu, mask=0x0A)
+        _run_one_frame(ppu)
+
+        digest = hashlib.sha256(bytes(ppu.frame_buffer)).hexdigest()
+        self.assertEqual(digest, _BACKGROUND_FRAME_SHA256)
+
+    def test_console_run_frame_produces_same_background_frame_hash(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "background_fixture.nes"
+        path.write_bytes(_idle_nrom_ines())
+        console = Console(ROM(path))
+        mapper = console.bus.cartridge.mapper
+        _fill_tile_pattern(mapper, plane0=0xFF)
+        _setup_uniform_nametable(console.ppu)
+        console.ppu.write_vram(0x3F00, _BACKGROUND_BACKDROP)
+        console.ppu.write_vram(0x3F01, _BACKGROUND_TILE_COLOR)
+        _enable_background_rendering(console.ppu, mask=0x0A)
+        console.reset()
+
+        console.run_frame()
+
+        digest = hashlib.sha256(bytes(console.ppu.frame_buffer)).hexdigest()
+        self.assertEqual(digest, _BACKGROUND_FRAME_SHA256)
 
 
 class PPUVblankTimingTests(unittest.TestCase):

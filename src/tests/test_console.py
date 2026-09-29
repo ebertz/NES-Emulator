@@ -11,7 +11,6 @@ from bus import Bus  # noqa: E402
 from controller import Controller  # noqa: E402
 from console import Console  # noqa: E402
 from cpu import CPU  # noqa: E402
-from memory import Memory  # noqa: E402
 from ppu import PPU  # noqa: E402
 from rom import ROM  # noqa: E402
 from test_rom import make_ines  # noqa: E402
@@ -416,15 +415,29 @@ class ConsoleInterruptIntegrationTests(unittest.TestCase):
 
 class InterruptTests(unittest.TestCase):
     def setUp(self):
-        self.memory = Memory(0x10000)
-        self.cpu = CPU(self.memory)
+        self._rom_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._rom_dir.cleanup)
+        prg = bytearray(b"\x00" * 0x4000)
+        prg[0x3FFA : 0x3FFC] = bytes((0x56, 0x34))
+        prg[0x3FFE : 0x4000] = bytes((0x67, 0x45))
+        path = Path(self._rom_dir.name) / "interrupt-vectors.nes"
+        path.write_bytes(make_ines(prg=bytes(prg)))
+        self.bus = Bus(
+            PPU(),
+            APU(),
+            (Controller(), Controller()),
+            ROM(path),
+        )
+        self.cpu = CPU(self.bus)
         self.cpu.debug = False
 
     def tearDown(self):
         self.cpu.logFile.close()
 
+    def test_fixture_uses_system_bus(self):
+        self.assertIsInstance(self.cpu.bus, Bus)
+
     def test_nmi_is_edge_latched_and_vectors(self):
-        self.memory.write16(0xFFFA, 0x3456)
         self.cpu.PC = 0x1234
         self.cpu.set_nmi_line(True)
         self.cpu.set_nmi_line(True)
@@ -437,7 +450,6 @@ class InterruptTests(unittest.TestCase):
 
     def test_nmi_does_not_retrigger_while_line_stays_high(self):
         # Regression: level-triggered NMI would set pending every sample while high.
-        self.memory.write16(0xFFFA, 0x3456)
         self.cpu.PC = 0x1234
         self.cpu.set_nmi_line(True)
         self.assertTrue(self.cpu.service_interrupts())
@@ -445,7 +457,6 @@ class InterruptTests(unittest.TestCase):
         self.assertFalse(self.cpu.service_interrupts())
 
     def test_nmi_rearms_after_line_falls_then_rises(self):
-        self.memory.write16(0xFFFA, 0x3456)
         self.cpu.PC = 0x1234
         self.cpu.set_nmi_line(True)
         self.assertTrue(self.cpu.service_interrupts())
@@ -455,7 +466,6 @@ class InterruptTests(unittest.TestCase):
         self.assertEqual(self.cpu.PC, 0x3456)
 
     def test_masked_irq_waits_until_interrupts_are_enabled(self):
-        self.memory.write16(0xFFFE, 0x4567)
         self.cpu.set_irq_line(True)
         self.assertFalse(self.cpu.service_interrupts())
 
@@ -465,12 +475,10 @@ class InterruptTests(unittest.TestCase):
         self.assertEqual(self.cpu.PC, 0x4567)
 
     def _pushed_status_after_interrupt(self):
-        return self.memory.read(self.cpu.SP + 1)
+        return self.bus.read(self.cpu.SP + 1)
 
     def test_nmi_stack_frame_clears_b_when_b_was_set(self):
         # Regression N4T3-R1: NMI must not push B=1 (would look like a BRK frame).
-        self.memory.write16(0xFFFE, 0x8000)
-        self.memory.write16(0xFFFA, 0x3456)
         self.cpu.PC = 0x1234
         self.cpu.execute(*self.cpu.instructions[0x00])
         self.assertEqual(self.cpu.B, 1)
@@ -484,13 +492,11 @@ class InterruptTests(unittest.TestCase):
 
     def test_irq_stack_frame_clears_b_when_b_was_set(self):
         # Regression N4T3-R1: IRQ must not push B=1 (would look like a BRK frame).
-        self.memory.write16(0xFFFE, 0x8000)
         self.cpu.PC = 0x1234
         self.cpu.execute(*self.cpu.instructions[0x00])
         self.assertEqual(self.cpu.B, 1)
         self.cpu.I = 0
 
-        self.memory.write16(0xFFFE, 0x4567)
         self.cpu.set_irq_line(True)
         self.assertTrue(self.cpu.service_interrupts())
 

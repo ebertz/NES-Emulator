@@ -1,8 +1,8 @@
 <!-- GITHUB ISSUE TRACKING METADATA -->
 <!-- Issue Key: N4T3 -->
-<!-- Last Updated: 2026-09-29T15:20:00-05:00 -->
+<!-- Last Updated: 2026-09-29T16:40:00-05:00 -->
 <!-- Description Hash: n/a (factory ticket) -->
-<!-- Spec Version: 1.0 -->
+<!-- Spec Version: 1.1 -->
 <!-- END METADATA -->
 
 # N4T3 — Console bus + cycle scheduling
@@ -18,10 +18,12 @@
   stub/controllers/cartridge together and schedules 3 PPU dots per CPU cycle, NMI/IRQ
   input lines on the CPU, and a PPU that compiles and implements just enough registers
   (CTRL, STATUS, OAMADDR, OAMDATA, OAM DMA target, vblank timing) to drive NMI.
+  `cpu.cycles` is re-based from PPU dots to **CPU cycles** (R5), the bus protocol gains
+  side-effect-free `peek`/`peek16` for the debug trace (R1), and `CPU` unit tests move
+  onto the real `Bus` with their incorrect assertions corrected (R8).
 - **Non-goals:** background/sprite rendering, PPU VRAM/nametable mirroring through
   `$2006/$2007` beyond what exists, APU sound, mapper IRQs, MMC2, odd-frame dot skip,
-  fixing the CPU's pre-existing cycle-count inconsistencies or the 22 pre-existing CPU
-  test failures, the cwd-relative `log.txt` the CPU opens.
+  the cwd-relative `log.txt` the CPU opens, `BRK`'s pushed-status B bit (unchanged).
 
 References: [nesdev CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map),
 [PPU registers](https://www.nesdev.org/wiki/PPU_registers),
@@ -29,7 +31,20 @@ References: [nesdev CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map),
 [Standard controller](https://www.nesdev.org/wiki/Standard_controller),
 [NMI](https://www.nesdev.org/wiki/NMI), [PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing).
 
-## Current State (verified 2026-09-29 at `3accc50`)
+## Current State
+
+### Implemented (verified 2026-09-29 at `40ae131`)
+
+- `src/bus.py`, `src/console.py`, `src/controller.py`, `src/apu.py` exist and satisfy
+  R1–R8 as amended in v1.1. `Memory.loadROM` is gone; `CPU(bus)` has no `memory`
+  attribute.
+- `cpu.cycles` counts **CPU cycles** everywhere: `execute` adds the table value, branch
+  and page-cross penalties add `1`/`crossPageCycles` unscaled, `service_interrupts` adds
+  `7`. `logOperation` prints `(cycles * 3) % 341` as `CYC`.
+- From `src/`: `python3 -m compileall -q . && python3 -m unittest discover -s tests` →
+  135 run, **0 failures**. `ROMTests.testROM` asserts the 5000-line nestest match.
+
+### Pre-ticket baseline (verified 2026-09-29 at `3accc50`, historical)
 
 - `CPU.__init__(self, cartridge=None)` builds `memory.Memory(0x10000)` and, if given a
   cartridge, calls `Memory.loadROM` (copies `mapper.cpu_read($8000-$FFFF)`).
@@ -53,6 +68,9 @@ References: [nesdev CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map),
 - `AddressingModeTests` / `InstructionTests` use scratch addresses anywhere in 64 KB
   (`$1000`, `$2000`, `$3000`, `$FFFE`, …). On a real NES map those are RAM mirrors, PPU
   registers, and cartridge ROM, so these tests cannot run unchanged against `Bus`.
+- Root cause of most of the 22 failures: the tests assert CPU-cycle deltas (e.g. a taken
+  branch is `+3`) while `cpu.cycles` was in PPU dots; the rest assert values that
+  contradict 6502 semantics (see R8).
 
 ## Requirements
 
@@ -60,15 +78,26 @@ References: [nesdev CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map),
 
 - `CPU.__init__(self, bus)` takes the object it reads and writes through and stores it as
   `self.bus`. `CPU` constructs no memory of its own and no longer accepts a cartridge.
-- The **bus protocol** is: `read(addr) -> int`, `write(addr, value) -> None`,
-  `read16(addr) -> int`, `write16(addr, value) -> None`. Both `bus.Bus` (R2) and
-  `memory.Memory` satisfy it.
+- The **bus protocol** is six methods, all required:
+  `read(addr) -> int`, `write(addr, value) -> None`, `read16(addr) -> int`,
+  `write16(addr, value) -> None`, `peek(addr) -> int`, `peek16(addr) -> int`.
+  Both `bus.Bus` (R2) and `memory.Memory` satisfy it. Any future bus must implement all
+  six: `CPU.peek`/`CPU.peek16` call `bus.peek`/`bus.peek16` unconditionally, and
+  `CPU()` defaults to `debug = True`, so a bus without `peek` raises `AttributeError`
+  on the first traced instruction.
+- `peek`/`peek16` return the byte(s) `read`/`read16` would return **without any side
+  effect**: no PPUSTATUS vblank/`w` clear, no controller shift, no open-bus update, no
+  mapper state change. `peek16` uses the same `$00FF → $0000` wrap as `read16`.
 - Every CPU/addressing-mode access that goes through `cpu.memory` today goes through
   `cpu.bus` instead. The attribute `memory` is removed from `CPU` (one name, one path).
+- Execution paths (`fetch`, operand fetch, stack) use `read`/`write`. Trace-only paths
+  (`logOperation` and every `AddressingMode.format`) use only `cpu.peek`/`cpu.peek16`,
+  so enabling the trace never changes emulated state.
 - `Memory.loadROM` is deleted; cartridge bytes are served live by the mapper through
   `Bus` (R2), never copied.
 - `memory.Memory` stays as a plain flat byte store. It is a valid bus for CPU-only
-  harnesses (instruction-semantics unit tests, standalone 6502 test programs); it is not
+  harnesses (e.g. standalone 6502 test programs) and implements all six protocol methods,
+  including `peek`/`peek16`. The CPU unit tests do not use it (R8). It is not
   used by `Console`.
 
 ### R2 — `Bus` owns the CPU address map (new module `src/bus.py`)
@@ -96,6 +125,9 @@ Every `read`/`write` first masks `addr &= 0xFFFF` and writes mask `value &= 0xFF
 - `read16(addr)` = `read(addr) | read(next) << 8` where `next = 0x0000` when `addr == 0x00FF`
   (preserves `Memory.read16`'s zero-page wrap, which `IndirectY` and others rely on),
   else `(addr + 1) & 0xFFFF`. `write16` writes low then high byte at `addr`, `(addr+1) & 0xFFFF`.
+- `peek` follows the same table but routes `$2000-$3FFF` to `ppu.peek_register(reg)`,
+  `$4016/$4017` to `controllers[n].peek()`, and leaves the open-bus latch untouched.
+  `$4000-$4015` APU reads and cartridge reads are already side-effect-free and are shared.
 - `Bus` performs no side effects on construction and does no I/O.
 
 ### R3 — PPU compiles and exposes a narrow register/timing surface
@@ -117,6 +149,8 @@ frame counter, the vblank flag, and its NMI output. Required surface:
     `$2007` read/write may remain stubbed but must not raise.
   - Every register write updates the internal data latch; write-only register reads
     return that latch.
+- `peek_register(reg: int) -> int`: the value `read_register(reg)` would return, with no
+  state change (vblank, `w`, and the data latch are untouched).
 - `write_oam_dma(page: bytes)` (length 256): copies into `oam` starting at `oamaddr`,
   wrapping (`oam[(oamaddr + i) & 0xFF] = page[i]`), matching hardware's 256 `$2004` writes.
   `oamaddr` ends unchanged.
@@ -134,8 +168,9 @@ frame counter, the vblank flag, and its NMI output. Required surface:
   `i = 0..255` (full bus, so RAM, mirrors, and cartridge pages all work) and calls
   `ppu.write_oam_dma(page)`.
 - The copy is completed synchronously inside the write. `Bus` then records
-  `dma_stall_cycles = 513` for the scheduler (R5); the scheduler adds 1 when the CPU cycle
-  count at the time of the stall is odd, for 513 or 514 total.
+  `dma_stall_cycles = 513` (CPU cycles) for the scheduler (R5); the scheduler adds 1 when
+  `cpu.cycles` (a CPU-cycle count, R5) is odd at the time the stall is consumed, for 513
+  or 514 total.
 
 ### R5 — `Console` wires and schedules (new module `src/console.py`)
 
@@ -147,19 +182,26 @@ components are wired.
 
 - `reset()`: `cpu.PC = bus.read16(0xFFFC)`, `cpu.I = 1`. (Callers may overwrite `PC`
   afterward, as the nestest harness sets `$C000`.)
+- **Unit:** `cpu.cycles` is measured in **CPU cycles** (not PPU dots). Every increment
+  is unscaled: `execute` adds the opcode table's cycle count, taken branches add `1`
+  (or `crossPageCycles` = `2` on a page cross), page-crossing reads add
+  `getCrossPageCycles` (`0`/`1`), `service_interrupts` adds `7`, and the scheduler adds
+  the DMA stall. Nothing in the CPU multiplies by 3. Consumers that need PPU time
+  multiply by 3 themselves; the trace's `CYC` column is `(cpu.cycles * 3) % 341`.
 - `step() -> int`: advances exactly one CPU "unit of work" and returns the **CPU cycles**
   it consumed:
-  1. If `bus.dma_stall_cycles` is non-zero: consume it (plus the odd-cycle extra), clear it.
-  2. Else if the CPU has a pending NMI or an unmasked IRQ (R6): service it (7 CPU cycles).
-  3. Else: `cpu.fetch()`.
-  4. Let `dots = cpu.cycles_after - cpu.cycles_before` (for step 1, the scheduler adds
-     `3 × stall` to `cpu.cycles` itself so the unit stays PPU dots). Call `ppu.step()`
-     exactly `dots` times. Return `dots // 3`.
-  5. Sample interrupt lines: `cpu.set_nmi_line(ppu.nmi_line)`,
+  1. Record `before = cpu.cycles`.
+  2. If `bus.dma_stall_cycles` is non-zero: `stall = dma_stall_cycles + (before & 1)`,
+     clear `dma_stall_cycles`, `cpu.cycles += stall`.
+  3. Else if `cpu.service_interrupts()` returns `True` (R6): done (7 CPU cycles).
+  4. Else: `cpu.fetch()`.
+  5. `elapsed = cpu.cycles - before`. Call `ppu.step()` exactly `3 × elapsed` times.
+  6. Sample interrupt lines: `cpu.set_nmi_line(ppu.nmi_line)`,
      `cpu.set_irq_line(apu.irq_line)`.
-- `cpu.cycles` stays measured in PPU dots, so the nestest `CYC` trace column is unchanged.
-  The PPU advances 3 dots per CPU cycle as accounted by the CPU; correcting
-  the CPU's pre-existing mis-scaled penalties is out of scope.
+  7. Return `elapsed`.
+- Invariant: over any sequence of `step()` calls, PPU dots advanced `== 3 × Σ` returned
+  values `== 3 ×` the change in `cpu.cycles`. A scheduler written against this spec must
+  never treat `cpu.cycles` as dots (that would run the PPU at 1/3 speed).
 - `run_frame()`: calls `step()` until `ppu`'s frame counter increments. It is a
   convenience for later frontend tickets and must terminate for a CPU spinning in a loop.
 
@@ -170,16 +212,25 @@ components are wired.
 - `CPU.set_irq_line(level: bool)`: level-sensitive; stored as `irq_line`.
 - `CPU.service_interrupts() -> bool` (called by `Console.step` step 2): if `nmi_pending`,
   clear it and vector through `$FFFA`; else if `irq_line and not I`, vector through `$FFFE`.
-  Vectoring = push PCH, PCL, then status with bit 5 set and B clear; set `I = 1`;
-  `PC = bus.read16(vector)`; `cycles += 7 * 3`. Returns whether it serviced one.
-- `brk` behavior is unchanged in this ticket.
+  Vectoring = push PCH, PCL of the current `PC`, then status with bit 5 set and B clear
+  (even if the `B` flag is currently 1); set `I = 1`; `PC = bus.read16(vector)`;
+  `cycles += 7` (CPU cycles, R5). Returns whether it serviced one.
+- CPU corrections made in this ticket (required for the bus-backed CPU tests and the
+  strengthened nestest assertion in R8):
+  - `brk` pushes return address `PC + 2` (hardware skips BRK's padding byte), then
+    status, then sets `B = 1` and `PC = bus.read16($FFFE)`. The pushed status B bit is
+    unchanged from before (it reflects the current `B` flag).
+  - `php` pushes status with B (bit 4) set.
+  - `tsx` loads `SP & 0xFF` (the CPU stores `SP` as `$01xx`).
+  - The trace's `P:` column prints status with B masked off, matching nestest's format.
 
 ### R7 — Controllers and APU stub (new modules `src/controller.py`, `src/apu.py`)
 
 - `controller.Controller`: `buttons` (8-bit int, bit order A, B, Select, Start, Up, Down,
   Left, Right from bit 0), set by the frontend. `write(value)`: strobe = `value & 1`; while
   strobe is high the shift register reloads from `buttons`. `read()`: returns bit 0 of the
-  shift register (A while strobed), then shifts; after 8 reads returns 1.
+  shift register (A while strobed), then shifts; after 8 reads returns 1. `peek()`
+  returns the bit `read()` would return without shifting.
 - `apu.APU`: `read_register(addr)` returns 0 for `$4015` (and open-bus-free 0 for others);
   `write_register(addr, value)` stores the value in a 32-byte register file without side
   effects; `irq_line` property is always `False`. It must not raise for any `$4000-$4017`.
@@ -189,12 +240,31 @@ components are wired.
 - `test_rom`'s NROM-128 check moves from `CPU(cartridge).memory.read(...)` to
   `Console(cartridge).bus.read(0x8000/0xC000)` (same expected values).
 - `ROMTests.testROM` runs nestest through `Console(ROM(path))` (i.e. through `Bus`), sets
-  `console.cpu.PC = 0xC000`, and loops `console.step()`. It must **assert** (not print) that
-  5000 instructions execute without exception and the first 5000 log lines match
-  `nestest.log.txt` on PC and `CYC`, which is the current baseline.
-- `AddressingModeTests` / `InstructionTests` construct `CPU(memory.Memory(0x10000))` and
-  switch `cpu.memory` → `cpu.bus`. Test logic is otherwise unchanged, and the pass/fail
-  set must equal the 22-failure baseline.
+  `console.cpu.PC = 0xC000` and `SP = $01FD` (nestest's reset state), and loops
+  `console.step()` 5000 times. It must **assert** (not print) that the first 5000 log
+  lines match `nestest.log.txt` on PC and on the register/timing segment
+  (`A`, `X`, `Y`, `P`, `SP` low byte, `CYC`).
+- `AddressingModeTests` / `InstructionTests` run on the **real `Bus`**: `CPU(Bus(PPU(),
+  APU(), controllers, ROM(synthetic NROM)))` with an IRQ/BRK vector at `$FFFE` pointing
+  at work RAM `$0600`. Fixtures are relocated from `$2000`/`$3000`/`$FFFE` to RAM
+  (`$0600`/`$0700`, zero-page pointer tables) so that no scratch access hits PPU
+  registers or ROM. `$1000` operand addresses remain and are RAM mirrors of `$0000`.
+- Assertions that contradicted 6502 semantics are corrected, not preserved:
+
+  | Test | Old expectation | New expectation | Why |
+  |---|---|---|---|
+  | `jsr` pushed return | `0x1003` | `0x1002` | JSR pushes return address − 1 |
+  | `rti` after `brk` PC | `0x1001` | `0x1002` | BRK returns to `PC + 2` (R6) |
+  | `rti` restored status | `0x0F` | `0x2F` | bit 5 always reads as 1 |
+  | `plp` of `0xDF` | `0xDF` | `0xFF` | bit 5 always reads as 1 |
+  | `relative` target | `0x1010` | `0x1012` | target is `PC + 2 + offset` |
+  | `indirect` read | dereferenced byte | 16-bit pointer at the indirect address | `Indirect.read` returns the pointer (JMP-style) |
+  | `implied` read | `None` | `0` | base `AddressingMode.read` returns 0 |
+  | `brk` target | `$2000` from written vector | `$0600` from cartridge vector | `$FFFE` is ROM on the real bus |
+
+- Branch and flag tests that previously failed only because `cpu.cycles` was in dots now
+  pass unchanged, because `cpu.cycles` is in CPU cycles (R5).
+- All tests in the suite pass; there is no accepted failure baseline.
 
 ## Design Decisions
 
@@ -207,15 +277,23 @@ components are wired.
 - **DMA copies synchronously, stall accounted by the scheduler:** keeps `Bus` free of
   clocking. Real DMA interleaves with PPU dots, but no observable difference exists
   until sprite rendering lands.
-- **Keep `cpu.cycles` in PPU dots:** changing units would rewrite every timing test and the
-  nestest `CYC` comparison. The scheduler reads the delta instead.
-- **Flat `Memory` for instruction-semantics tests.** These tests check opcode behavior,
-  not the NES memory map. Moving their fixtures to real NES addresses would rewrite most
-  of `test_cpu.py`, and `$FFFE`-vector tests would need a writable cartridge. Injecting
-  a flat bus is a real production configuration (a CPU-only harness), not a test-only
-  branch. The acceptance criterion "existing CPU unit tests still pass with a bus-backed
-  memory" is therefore met this way: every CPU access goes through an injected bus, and
-  nestest runs through the real `Bus`.
+- **`cpu.cycles` in CPU cycles (reverses v1.0's "keep dots").** The existing timing
+  tests already assert CPU-cycle deltas, the PPU/DMA/NMI timing is naturally expressed
+  per CPU cycle, and the dot scaling was applied inconsistently (some penalties
+  unscaled). One unit in the CPU and one `× 3` in the scheduler and trace removes that
+  class of bug. The trace computes `CYC` from `cycles * 3`, so nestest still matches.
+- **Side-effect-free `peek` in the bus protocol.** On the real bus, reading `$2002` or
+  `$4016` changes state. The debug trace reads operands before execution, so it must not
+  use `read`, or turning the trace on would change emulation. `peek` is a real
+  production method used by the trace, not a test seam.
+- **CPU unit tests on the real `Bus` (reverses v1.0's flat-`Memory` harness).** The
+  acceptance criterion says "existing CPU unit tests still pass with a bus-backed
+  memory". Running them on the production `Bus` meets that literally, and it exercises
+  RAM mirroring and cartridge vectors. `memory.Memory` stays a valid bus (it implements
+  `peek`/`peek16`) for CPU-only harnesses, but no suite in this ticket depends on it.
+- **Fix wrong assertions rather than freeze them.** Keeping a 22-failure baseline hid
+  real regressions. Each corrected assertion in R8 is justified by 6502 behavior or by
+  the address map.
 - **Governing decisions:** neither the `emulator-core` nor the `tests` LEAF doc has a
   "Governing decision:" line. The design is consistent with emulator-core's Public
   Contract ("Callers construct a CPU with injected memory/ROM") and with
@@ -262,15 +340,19 @@ Tests must use a synthetic NROM cartridge (built via `rom.ROM` on a temp file or
 - APU stub: writes to every `$4000-$4013`, `$4015`, `$4017` do not raise. `$4015` reads 0.
 - Cartridge: `$8000` and `$C000` reads come from the mapper live (NROM-128 mirror). With no
   cartridge, reads do not raise.
+- Trace purity: with `debug = True`, stepping an instruction that follows a vblank does
+  not clear PPUSTATUS vblank before the instruction runs, and stepping near `$4016`
+  reads does not shift the controller; only the instruction's own `read` does.
+- Interrupt stack frame: NMI and IRQ push status with B clear even when `B == 1`.
 - `python3 -m compileall -q .` succeeds from `src/` (now includes `ppu.py`).
 
 ## Verification
 
 From `src/`: `python3 -m compileall -q . && python3 -m unittest discover -s tests -v`.
-Pass criterion: compileall exits 0. The 77 previously passing tests still pass, with
-`ROMTests.testROM` now asserting its 5000-line match through `Console`/`Bus`. New
-bus/console tests pass. The failure set is exactly the 22 pre-existing failures listed in
-Current State.
+Pass criterion: compileall exits 0 and the unittest run reports **0 failures and 0
+errors** (135 tests at `40ae131`). This includes `ROMTests.testROM` asserting its
+5000-line match through `Console`/`Bus`, the relocated/corrected CPU tests (R8), and the
+bus/console/interrupt tests.
 
 ## Plain-English Hand-off
 
@@ -284,13 +366,21 @@ processor step, so it can signal the start of each video frame back to the proce
   started". Pictures come in a later ticket.
 - Sound registers accept writes and do nothing. Games that wait on sound-chip interrupts
   will not see one yet.
-- The existing processor instruction tests keep running against a simple flat 64 KB
-  memory, not the full NES wiring. Only the nestest program run goes through the real
-  wiring. This avoids rewriting most of the test file, but means those tests do not
-  exercise the NES address layout.
-- The processor's existing timing quirks (a few instructions count page-crossing
-  penalties at the wrong scale) are kept as-is, so graphics timing inherits them.
-  nestest timing still matches for the first 5000 instructions.
+- The processor now counts time in its own cycles instead of graphics-chip steps.
+  This reverses the first draft of this spec on purpose. It fixes timing that was
+  counted at the wrong scale for some instructions. Any later code that reads the
+  processor's cycle counter must multiply by 3 to get graphics-chip time.
+- The existing processor tests now run on the full NES wiring. Their data was moved to
+  addresses that are real memory on an NES, and eight expectations that were wrong
+  about how the 6502 behaves were corrected. The whole suite now passes, where 22 tests
+  failed before. Because expectations changed, a reviewer should check the corrections
+  table, not just the green run.
+- A few processor behaviors changed to match real hardware: the return address saved by
+  the software-interrupt instruction, the flag byte saved by "push status", and the
+  stack-pointer copy instruction. Programs that relied on the old, wrong behavior will
+  act differently.
+- The debug trace now reads memory through a "look without touching" path. Any future
+  memory wiring must provide that path too, or the trace will crash.
 - The one-time copy of cartridge data into memory is removed. Cartridge bytes are now
   read live from the cartridge. This is what makes bank-switching cartridges (Punch-Out)
   possible later.
@@ -298,6 +388,34 @@ processor step, so it can signal the start of each video frame back to the proce
   has no visible effect until sprites are drawn.
 
 ## Changelog
+
+### Version 1.1 - 2026-09-29
+**Source Issue:** N4T3 (review finding N4T3-REV-1)
+**Change Type:** Major
+
+**Changes:**
+- R1: bus protocol is six methods, adding side-effect-free `peek`/`peek16`. The debug
+  trace and `AddressingMode.format` use only `peek`. Missing `peek` is fatal with the
+  default `debug = True`.
+- R2/R3/R7: `Bus.peek` routing, `PPU.peek_register`, `Controller.peek`.
+- R4/R5: `cpu.cycles` is re-based to CPU cycles. All CPU increments are unscaled.
+  `step()` clocks the PPU `3 × elapsed` times and returns `elapsed`. The DMA odd-cycle
+  check uses CPU cycles. The trace prints `CYC` as `(cycles * 3) % 341`.
+- R6: `service_interrupts` adds 7 (not `7 * 3`). Pushed status clears B unconditionally.
+  `brk` now pushes `PC + 2`. `php` pushes B set. `tsx` masks SP. Trace masks B in `P:`.
+- R8: CPU unit tests run on the real `Bus` with RAM-relocated fixtures and a
+  cartridge IRQ vector. Eight incorrect assertions are corrected (table in R8). The
+  nestest harness sets `SP = $01FD` and also asserts A/X/Y/P/SP.
+- Current State: adds the implemented state at `40ae131` (135 tests, 0 failures). The
+  `3accc50` baseline is kept, labeled as historical.
+- Design Decisions, Verification, Test Expectations, and Plain-English hand-off are
+  updated to match. The 22-failure baseline is replaced by "0 failures".
+
+**Impact:** No code change required. This brings the spec in line with the code at
+`40ae131`. Follow-on tickets (PPU rendering, frontend) must implement `peek`/`peek16`
+on any bus and treat `cpu.cycles` as CPU cycles.
+
+---
 
 ### Version 1.0 - 2026-09-29
 **Source Issue:** N4T3

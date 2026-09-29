@@ -39,6 +39,7 @@ Every tracked file under `src/` appears here exactly once.
 - `src/console.py`
 - `src/controller.py`
 - `src/cpu.py`
+- `src/harness.py`
 - `src/mapper.py`
 - `src/memory.py`
 - `src/nestest.log.txt`
@@ -50,5 +51,6 @@ Every tracked file under `src/` appears here exactly once.
 - `src/tests/__init__.py`
 - `src/tests/test_console.py`
 - `src/tests/test_cpu.py`
+- `src/tests/test_memory.py`
 - `src/tests/test_rom.py`
 - `src/tests/testROMs/nestest.nes`

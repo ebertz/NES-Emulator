@@ -12,6 +12,7 @@ and frontend behavior — without shipping commercial ROMs.
 - `src/tests/__init__.py` — package marker
 - `src/tests/test_console.py` — bus, scheduler, controller, and interrupt behavior
 - `src/tests/test_cpu.py` — CPU unit and nestest log compare
+- `src/tests/test_memory.py` — flat-memory bus and standalone CPU harness behavior
 - `src/tests/test_rom.py` — synthetic iNES parsing and mapper behavior tests
 - `src/tests/testROMs/nestest.nes` — redistributable nestest fixture
 

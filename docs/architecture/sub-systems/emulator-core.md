@@ -18,6 +18,7 @@ current tree exposes the mapper interface with Mapper 0 for nestest.
 - `src/console.py` — component wiring and cycle scheduler
 - `src/controller.py` — serial controller port
 - `src/cpu.py` — 6502 CPU and instruction decode/execute
+- `src/harness.py` — standalone CPU wiring backed by flat memory
 - `src/mapper.py` — cartridge mapper interface and NROM implementation
 - `src/memory.py` — flat byte store for CPU-only harnesses
 - `src/ppu.py` — PPU skeleton (must compile; rendering is later tickets)
@@ -26,7 +27,7 @@ current tree exposes the mapper interface with Mapper 0 for nestest.
 ## Public Contract
 
 - Callers construct a CPU with an injected bus; `Console` wires the NES bus and
-  a flat `Memory` remains available for CPU-only harnesses.
+  `CPUHarness` wires the supported flat-memory CPU-only configuration.
 - ROM loading accepts a filesystem path and will grow a mapper interface.
 - Commercial ROMs are never committed; nestest stays under `src/tests/testROMs/`.
 

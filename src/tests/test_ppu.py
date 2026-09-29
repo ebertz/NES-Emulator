@@ -215,11 +215,37 @@ class PPUPpuDataTests(unittest.TestCase):
         ppu.write_register(7, 0x01)
         self.assertEqual(ppu.v, 0x2020)
 
-    def test_v_wraps_at_15_bits_and_access_masks_to_14(self):
+    def test_v_wraps_at_15_bits_after_ppudata_write(self):
         ppu = PPU()
         ppu.v = 0x7FFF
         ppu.write_register(7, 0x55)
         self.assertEqual(ppu.v, 0)
+
+
+class PPUVram14BitMaskTests(unittest.TestCase):
+    """Regression: read_vram/write_vram must mask to 14 bits before decode."""
+
+    def test_read_vram_masks_chr_fetch_above_0x4000(self):
+        mapper = _nrom_mapper(chr_banks=0)
+        ppu = PPU(mapper)
+        mapper.ppu_write(0x0010, 0xBE)
+        self.assertEqual(ppu.read_vram(0x4010), 0xBE)
+        self.assertEqual(mapper.ppu_read(0x0010), 0xBE)
+
+    def test_ppudata_write_at_v_0x4010_targets_chr_not_nametable(self):
+        mapper = _nrom_mapper(chr_banks=0)
+        ppu = PPU(mapper)
+        ppu.v = 0x4010
+        ppu.write_register(7, 0xDE)
+        self.assertEqual(mapper.ppu_read(0x0010), 0xDE)
+        self.assertEqual(ppu.read_vram(0x2000), 0)
+
+    def test_ppudata_write_at_v_0x6005_targets_same_nametable_as_0x2005(self):
+        ppu = PPU()
+        ppu.v = 0x6005
+        ppu.write_register(7, 0x42)
+        self.assertEqual(ppu.read_vram(0x2005), 0x42)
+        self.assertEqual(ppu.read_vram(0x6005), 0x42)
 
 
 class PPUPaletteTests(unittest.TestCase):

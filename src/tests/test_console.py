@@ -208,6 +208,27 @@ class BusTests(unittest.TestCase):
 
         self.assertEqual(writes, [(0x8000, 0x55)])
 
+    def test_disabled_io_read_with_cartridge_uses_open_bus(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "nrom.nes"
+        path.write_bytes(make_ines())
+        bus = Bus(PPU(), APU(), (Controller(), Controller()), ROM(path))
+        bus.write(0x0000, 0xA5)
+
+        self.assertEqual(bus.read(0x4018), 0xA5)
+
+    def test_disabled_io_write_with_cartridge_is_ignored(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "nrom.nes"
+        path.write_bytes(make_ines())
+        bus = Bus(PPU(), APU(), (Controller(), Controller()), ROM(path))
+
+        bus.write(0x401F, 0x3C)
+
+        self.assertEqual(bus.read(0x4018), 0x3C)
+
 
 class ConsoleTests(unittest.TestCase):
     def tearDown(self):

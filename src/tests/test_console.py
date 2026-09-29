@@ -101,6 +101,22 @@ class ConsoleTests(unittest.TestCase):
             513 * 3,
         )
 
+    def test_dma_stall_adds_one_cycle_when_dma_starts_on_odd_cpu_cycle(self):
+        # Regression: hardware adds +1 stall when $4014 is serviced on an odd cycle.
+        self.console = Console()
+        self.console.cpu.debug = False
+        self.console.cpu.cycles = 1
+        self.console.bus.write(0x4014, 0)
+
+        cycles = self.console.step()
+
+        self.assertEqual(cycles, 514)
+        self.assertEqual(self.console.bus.dma_stall_cycles, 0)
+        self.assertEqual(
+            self.console.ppu.scanline * 341 + self.console.ppu.dot,
+            514 * 3,
+        )
+
     def test_debug_trace_does_not_read_ppu_status_before_instruction(self):
         self.console = Console()
         self.console.cpu.A = 0xFF

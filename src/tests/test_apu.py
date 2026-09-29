@@ -160,6 +160,23 @@ class APUSynthesisTests(unittest.TestCase):
         apu.write_register(0x4015, 0)
         self.assertFalse(apu.irq_line)
 
+    def test_dmc_irq_cleared_when_irq_enable_cleared_via_4010(self):
+        # Regression N4T8-R4-dmc-irq-disable-clear-unpinned: writing $4010 with
+        # bit 7 clear must acknowledge a pending DMC IRQ (not only $4015 writes).
+        apu = APU(sample_rate=CPU_FREQUENCY, memory_reader=lambda _address: 0xFF)
+        apu.write_register(0x4010, 0x8F)
+        apu.write_register(0x4012, 0x20)
+        apu.write_register(0x4013, 0x00)
+        apu.write_register(0x4015, 0x10)
+        apu.step(1)
+
+        self.assertTrue(apu.irq_line)
+        self.assertEqual(apu.read_register(0x4015) & 0x80, 0x80)
+
+        apu.write_register(0x4010, 0x0F)
+        self.assertFalse(apu.irq_line)
+        self.assertEqual(apu.read_register(0x4015) & 0x80, 0)
+
     def test_dmc_disable_via_status_clears_active_flag_and_stops_fetches(self):
         # Regression N4T8-R2-dmc-disable-unpinned: $4015=0 must stop an in-flight
         # sample and clear status bit 4, not only after bytes_remaining reaches 0.

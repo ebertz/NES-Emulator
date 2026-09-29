@@ -128,6 +128,36 @@ class APUSynthesisTests(unittest.TestCase):
         apu.write_register(0x4015, 0)
         self.assertFalse(apu.irq_line)
 
+    def test_dmc_disable_via_status_clears_active_flag_and_stops_fetches(self):
+        # Regression N4T8-R2-dmc-disable-unpinned: $4015=0 must stop an in-flight
+        # sample and clear status bit 4, not only after bytes_remaining reaches 0.
+        reads = []
+
+        def read(address):
+            reads.append(address)
+            return 0x55
+
+        apu = APU(sample_rate=CPU_FREQUENCY, memory_reader=read)
+        apu.write_register(0x4010, 0x0F)
+        apu.write_register(0x4012, 0x20)
+        apu.write_register(0x4013, 0x01)
+        apu.write_register(0x4015, 0x10)
+        apu.step(12)
+
+        self.assertGreater(apu.dmc.bytes_remaining, 0)
+        self.assertLess(apu.dmc.bytes_remaining, apu.dmc.sample_length)
+        self.assertEqual(apu.read_register(0x4015) & 0x10, 0x10)
+
+        reads_while_active = len(reads)
+        self.assertGreater(reads_while_active, 0)
+
+        apu.write_register(0x4015, 0x00)
+        self.assertEqual(apu.dmc.bytes_remaining, 0)
+        self.assertEqual(apu.read_register(0x4015) & 0x10, 0)
+
+        apu.step(500)
+        self.assertEqual(len(reads), reads_while_active)
+
     def test_drain_returns_pcm_once(self):
         apu = configured_apu()
         apu.step(8)

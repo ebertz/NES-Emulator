@@ -71,6 +71,38 @@ class BusTests(unittest.TestCase):
 
         self.assertEqual(bits, [1, 0, 1, 0, 0, 1, 0, 1, 1, 1])
 
+    def test_cartridge_space_without_cartridge_uses_open_bus(self):
+        # Regression N4T3-REV-1: guard `cartridge is not None` must stay on _read/_write.
+        self.bus.write(0x8000, 0x5A)
+        self.assertEqual(self.bus.read(0x8000), 0x5A)
+
+        self.bus.write(0x0100, 0x77)
+        self.assertEqual(self.bus.read(0xFFFF), 0x77)
+
+    def test_cartridge_space_write_without_cartridge_does_not_raise(self):
+        self.bus.write(0x8000, 0x99)
+
+    def test_cartridge_space_write_reaches_mapper_cpu_write(self):
+        prg = b"\xA5" + b"\0" * (0x4000 - 1)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "nrom.nes"
+        path.write_bytes(make_ines(prg=prg))
+        cartridge = ROM(path)
+        bus = Bus(PPU(), APU(), (Controller(), Controller()), cartridge)
+        writes = []
+        original_write = cartridge.mapper.cpu_write
+
+        def capture_cpu_write(addr, value):
+            writes.append((addr, value))
+            original_write(addr, value)
+
+        cartridge.mapper.cpu_write = capture_cpu_write
+
+        bus.write(0x8000, 0x55)
+
+        self.assertEqual(writes, [(0x8000, 0x55)])
+
 
 class ConsoleTests(unittest.TestCase):
     def tearDown(self):

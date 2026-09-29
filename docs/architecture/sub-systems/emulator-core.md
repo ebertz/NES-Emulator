@@ -19,8 +19,8 @@ exposes the mapper interface with Mapper 0 for nestest.
 - `src/controller.py` — serial controller port
 - `src/cpu.py` — 6502 CPU and instruction decode/execute
 - `src/mapper.py` — cartridge mapper interface and NROM implementation
-- `src/ppu.py` — PPU registers, VRAM/palette, scroll latches, frame timing,
-  and NMI (rendering is a later ticket)
+- `src/ppu.py` — PPU registers, VRAM/palette, scroll latches, background
+  rendering, frame timing, and NMI
 - `src/rom.py` — path-based iNES header and cartridge loader
 
 ## Public Contract
@@ -34,6 +34,7 @@ exposes the mapper interface with Mapper 0 for nestest.
 
 - Python 3 only; `python3 -m compileall` over `src/` must succeed.
 - CPU unit tests compare against `src/nestest.log.txt` when ROMTests run.
+- Background output is a 256×240 buffer of NES palette indices.
 - No copyrighted Punch-Out (or other commercial) ROM in the tree.
 
 ## Security Posture

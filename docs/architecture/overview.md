@@ -10,7 +10,7 @@ the declared source roots belongs to exactly one subsystem below.
 ## Subsystems
 
 1. **emulator-core** — CPU, addressing modes, NES system bus, iNES ROM loader,
-   and register-level PPU that together form the console core. See
+   and background-rendering PPU that together form the console core. See
    [`sub-systems/emulator-core.md`](./sub-systems/emulator-core.md).
 2. **tests** — Unit tests and redistributable fixtures (nestest). See
    [`sub-systems/tests.md`](./sub-systems/tests.md).

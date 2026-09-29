@@ -9,7 +9,8 @@ class Console:
     """Owns component wiring and advances the console clock."""
 
     def __init__(self, cartridge=None):
-        self.ppu = PPU()
+        mapper = cartridge.mapper if cartridge is not None else None
+        self.ppu = PPU(mapper)
         self.apu = APU()
         self.controllers = (Controller(), Controller())
         self.bus = Bus(self.ppu, self.apu, self.controllers, cartridge)

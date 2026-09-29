@@ -19,7 +19,8 @@ exposes the mapper interface with Mapper 0 for nestest.
 - `src/controller.py` — serial controller port
 - `src/cpu.py` — 6502 CPU and instruction decode/execute
 - `src/mapper.py` — cartridge mapper interface and NROM implementation
-- `src/ppu.py` — PPU skeleton (must compile; rendering is later tickets)
+- `src/ppu.py` — PPU registers, VRAM/palette, scroll latches, frame timing,
+  and NMI (rendering is a later ticket)
 - `src/rom.py` — path-based iNES header and cartridge loader
 
 ## Public Contract
@@ -44,5 +45,5 @@ exposes the mapper interface with Mapper 0 for nestest.
 ## Failure Modes
 
 - Unsupported cartridge hardware is rejected with its iNES mapper id.
-- Syntax errors in `ppu.py` fail compileall and block the suite.
+- Incorrect PPU address mirroring corrupts nametables or palette data.
 - Incorrect iNES flags select the wrong mirroring or mapper implementation.

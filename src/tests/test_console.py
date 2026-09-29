@@ -229,6 +229,22 @@ class BusTests(unittest.TestCase):
 
         self.assertEqual(writes, [(0x8000, 0x55)])
 
+    def test_wrapped_cpu_address_hits_ram_not_cartridge(self):
+        # Regression N4T3-REV-ADDR-MASK: _read/_write must mask to 16 bits before decode.
+        # Without it, 0x10010 routes to mapper.cpu_read and raises on NROM.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "nrom.nes"
+        path.write_bytes(make_ines())
+        bus = Bus(PPU(), APU(), (Controller(), Controller()), ROM(path))
+        bus.write(0x0010, 0xAB)
+
+        self.assertEqual(bus.read(0x10010), 0xAB)
+
+        bus.write(0x10010, 0xCD)
+        self.assertEqual(bus.read(0x0010), 0xCD)
+        self.assertEqual(bus.read(0x1010), 0xCD)
+
     def test_disabled_io_read_with_cartridge_uses_open_bus(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

@@ -83,7 +83,7 @@ class BusTests(unittest.TestCase):
 
         self.bus.write(0x2006, 0x12)
         self.bus.write(0x2006, 0x34)
-        self.assertEqual(self.ppu._ppuaddr, 0x1234)
+        self.assertEqual(self.ppu.v, 0x1234)
 
     def test_oamdata_write_auto_increments_oamaddr(self):
         self.bus.write(0x2003, 0x10)

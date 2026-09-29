@@ -157,6 +157,7 @@ class ConsoleInterruptIntegrationTests(unittest.TestCase):
         for _ in range(2):
             frame = self.console.ppu.frame
             frame_entries = 0
+            sp_at_frame_start = self.console.cpu.SP
             while self.console.ppu.frame == frame:
                 previous_pc = self.console.cpu.PC
                 self.console.step()
@@ -174,6 +175,10 @@ class ConsoleInterruptIntegrationTests(unittest.TestCase):
                     self.assertGreaterEqual(return_pc, 0x8000)
                     self.assertLess(return_pc, 0x8100)
             self.assertEqual(frame_entries, 1)
+            self.assertEqual(
+                self.console.cpu.SP,
+                sp_at_frame_start - 3 * frame_entries,
+            )
 
         self.assertEqual(nmi_entries, 2)
 
@@ -251,6 +256,25 @@ class InterruptTests(unittest.TestCase):
         self.assertTrue(serviced)
         self.assertEqual(self.cpu.PC, 0x3456)
         self.assertFalse(self.cpu.service_interrupts())
+
+    def test_nmi_does_not_retrigger_while_line_stays_high(self):
+        # Regression: level-triggered NMI would set pending every sample while high.
+        self.memory.write16(0xFFFA, 0x3456)
+        self.cpu.PC = 0x1234
+        self.cpu.set_nmi_line(True)
+        self.assertTrue(self.cpu.service_interrupts())
+        self.cpu.set_nmi_line(True)
+        self.assertFalse(self.cpu.service_interrupts())
+
+    def test_nmi_rearms_after_line_falls_then_rises(self):
+        self.memory.write16(0xFFFA, 0x3456)
+        self.cpu.PC = 0x1234
+        self.cpu.set_nmi_line(True)
+        self.assertTrue(self.cpu.service_interrupts())
+        self.cpu.set_nmi_line(False)
+        self.cpu.set_nmi_line(True)
+        self.assertTrue(self.cpu.service_interrupts())
+        self.assertEqual(self.cpu.PC, 0x3456)
 
     def test_masked_irq_waits_until_interrupts_are_enabled(self):
         self.memory.write16(0xFFFE, 0x4567)

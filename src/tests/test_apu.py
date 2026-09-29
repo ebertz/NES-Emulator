@@ -49,6 +49,38 @@ class APURegisterTests(unittest.TestCase):
         self.assertEqual(apu.pulse2.length, 0)
         self.assertEqual(apu.noise.length, 0)
 
+    def test_length_counter_expiry_clears_status_bit_after_two_half_frames(self):
+        # Regression N4T8-R3-length-counter-clock-unpinned: $4015 length bits must
+        # reflect counter expiry, not only load and channel disable.
+        apu = APU()
+        apu.write_register(0x4015, 0x01)
+        apu.write_register(0x4003, 0x18)
+
+        self.assertEqual(apu.pulse1.length, 2)
+        self.assertEqual(apu.read_register(0x4015) & 0x01, 0x01)
+
+        apu.step(14_913)
+        self.assertEqual(apu.pulse1.length, 1)
+        self.assertEqual(apu.read_register(0x4015) & 0x01, 0x01)
+
+        apu.step(29_829 - 14_913)
+        self.assertEqual(apu.pulse1.length, 0)
+        self.assertEqual(apu.read_register(0x4015) & 0x01, 0)
+
+    def test_length_counter_halt_keeps_status_bit_through_half_frames(self):
+        # Regression N4T8-R3-length-counter-clock-unpinned: halt (loop) on $4000
+        # must freeze the length counter so $4015 bit 0 stays set.
+        apu = APU()
+        apu.write_register(0x4015, 0x01)
+        apu.write_register(0x4000, 0x20)
+        apu.write_register(0x4003, 0x18)
+
+        self.assertEqual(apu.pulse1.length, 2)
+        apu.step(29_829)
+
+        self.assertEqual(apu.pulse1.length, 2)
+        self.assertEqual(apu.read_register(0x4015) & 0x01, 0x01)
+
     def test_frame_irq_is_reported_and_status_read_acknowledges_it(self):
         apu = APU()
         apu.step(29_829)

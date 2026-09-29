@@ -59,6 +59,14 @@ class HeaderTests(unittest.TestCase):
         )
         self.assertEqual(header.mapper, 1)
 
+    def test_nes2_does_not_mask_mapper_when_header_tail_is_nonzero(self):
+        # Regression: DiskDude masking applies only to iNES 1.0 headers.
+        header = parse_header(
+            make_header(flags6=0x10, flags7=0x48, tail=b"\x01\x02\x03\x04")
+        )
+        self.assertTrue(header.is_nes2)
+        self.assertEqual(header.mapper, 0x41)
+
     def test_rejects_short_header(self):
         with self.assertRaisesRegex(ROMFormatError, "expected 16 bytes"):
             parse_header(b"NES\x1a")

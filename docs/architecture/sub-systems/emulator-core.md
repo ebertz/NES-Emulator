@@ -6,23 +6,27 @@ register traffic.
 
 ## Purpose
 
-Own the code that turns a cartridge image into CPU-executable memory and (as
-tickets land) a clocked PPU/APU/bus. Punch-Out requires Mapper 9 (MMC2); the
+Own the code that turns a cartridge image into a bus-connected, clocked
+CPU/PPU/APU console. Punch-Out requires Mapper 9 (MMC2); the
 current tree exposes the mapper interface with Mapper 0 for nestest.
 
 ## Anchor Files
 
-- `src/cpu.py` — 6502 CPU and instruction decode/execute
 - `src/addressing.py` — addressing-mode helpers
-- `src/memory.py` — early flat-memory helper (to be replaced by a bus)
-- `src/rom.py` — path-based iNES header and cartridge loader
+- `src/apu.py` — register-level APU stub and IRQ line
+- `src/bus.py` — CPU address map, RAM mirrors, and OAM DMA
+- `src/console.py` — component wiring and cycle scheduler
+- `src/controller.py` — serial controller port
+- `src/cpu.py` — 6502 CPU and instruction decode/execute
 - `src/mapper.py` — cartridge mapper interface and NROM implementation
+- `src/memory.py` — flat byte store for CPU-only harnesses
 - `src/ppu.py` — PPU skeleton (must compile; rendering is later tickets)
+- `src/rom.py` — path-based iNES header and cartridge loader
 
 ## Public Contract
 
-- Callers construct a CPU with injected memory/ROM rather than relying on a
-  module-level nestest path.
+- Callers construct a CPU with an injected bus; `Console` wires the NES bus and
+  a flat `Memory` remains available for CPU-only harnesses.
 - ROM loading accepts a filesystem path and will grow a mapper interface.
 - Commercial ROMs are never committed; nestest stays under `src/tests/testROMs/`.
 

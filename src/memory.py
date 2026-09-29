@@ -14,13 +14,6 @@ class Memory:
 		return self.memory[address] + (self.memory[address + 1] << 8)
 
 	def write16(self, address, value):
-		if address == 0xFF: 
-			self.memory[address] + value & 0xFF
-			self.memory[0x00] = (value >> 8) & 0xFF
 		self.memory[address] = value & 0xFF
-		self.memory[address + 1] = (value >> 8) & 0xFF
-
-	def loadROM(self, rom):
-		for address in range(0x8000, 0x10000):
-			self.memory[address] = rom.mapper.cpu_read(address)
-		
+		next_address = 0 if address == 0xFF else address + 1
+		self.memory[next_address] = (value >> 8) & 0xFF

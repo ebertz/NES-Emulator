@@ -1,20 +1,19 @@
 # CPU architecture references :
 # http://www.obelisk.me.uk/6502/reference.html
 # http://www.6502.org/tutorials/6502opcodes.html
-import memory
 import addressing
 
 class CPU:
 
-    def __init__(self, cartridge=None):
-        self.console = None
-        self.memory = memory.Memory(0x10000)
-        if cartridge is not None:
-            self.memory.loadROM(cartridge)
+    def __init__(self, bus):
+        self.bus = bus
         self.clock = None
         self.cycles = 0
         self.debug = True
         self.logFile = open('log.txt', 'w')
+        self.nmi_pending = False
+        self.irq_line = False
+        self._nmi_line = False
 
         #status flags
         self.C = 0
@@ -260,12 +259,38 @@ class CPU:
 
     #stack is located at 0x0100-0x01FF, top-down, wraps to start of stack if overflow
     def pushStack(self, value):
-        self.memory.write(self.SP, value)
+        self.bus.write(self.SP, value)
         self.SP -= 1
 
     def popStack(self):
         self.SP += 1
-        return self.memory.read(self.SP)
+        return self.bus.read(self.SP)
+
+    def set_nmi_line(self, level):
+        level = bool(level)
+        if level and not self._nmi_line:
+            self.nmi_pending = True
+        self._nmi_line = level
+
+    def set_irq_line(self, level):
+        self.irq_line = bool(level)
+
+    def service_interrupts(self):
+        if self.nmi_pending:
+            self.nmi_pending = False
+            vector = 0xFFFA
+        elif self.irq_line and not self.I:
+            vector = 0xFFFE
+        else:
+            return False
+
+        self.pushStack((self.PC >> 8) & 0xFF)
+        self.pushStack(self.PC & 0xFF)
+        self.pushStack(self.getProcessorStatus() & ~0x10)
+        self.I = 1
+        self.PC = self.bus.read16(vector)
+        self.cycles += 7 * 3
+        return True
 
     # NV_BDIZC
     def getProcessorStatus(self):
@@ -289,7 +314,7 @@ class CPU:
         self.SP = 0x100 + (value & 0xFF)
 
     def fetch(self):
-        opcode = self.memory.read(self.PC)
+        opcode = self.bus.read(self.PC)
         self.execute(*self.instructions[opcode])
 
     # execute an instruction        
@@ -306,7 +331,7 @@ class CPU:
         log = str("{:04x}".format(self.PC)) + ' '
 
         for i in range(ops):
-            log += ' ' + str("{:02x}".format(self.memory.read(self.PC + i)))
+            log += ' ' + str("{:02x}".format(self.bus.read(self.PC + i)))
         log += ' ' * (16 - len(log))
         log += ' ' + instruction.__name__
         log += ' ' + addressingMode.format()
@@ -417,7 +442,7 @@ class CPU:
         self.pushStack((self.PC >> 8) & 0xFF)
         self.pushStack(self.PC & 0xFF)
         self.pushStack(self.getProcessorStatus())
-        irq = self.memory.read16(0xfffe)
+        irq = self.bus.read16(0xfffe)
         self.PC = irq
         self.B = 1;
 

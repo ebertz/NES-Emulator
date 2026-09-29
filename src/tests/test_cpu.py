@@ -3,11 +3,14 @@ import os, sys
 from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cpu import *
+from console import Console
+from memory import Memory
 from rom import ROM
 
 class AddressingModeTests(unittest.TestCase):
 	def setUp(self):
-		self.cpu = CPU()
+		self.cpu = CPU(Memory(0x10000))
+		self.cpu.memory = self.cpu.bus
 
 	def test_address_zero_page_read(self):
 		self.cpu.memory.write(0x10, 5)
@@ -179,7 +182,8 @@ class AddressingModeTests(unittest.TestCase):
 
 class InstructionTests(unittest.TestCase):
 	def setUp(self):
-		self.cpu = CPU()
+		self.cpu = CPU(Memory(0x10000))
+		self.cpu.memory = self.cpu.bus
 
 	def tearDown(self):
 		pass
@@ -615,33 +619,24 @@ class InstructionTests(unittest.TestCase):
 class ROMTests(unittest.TestCase):
 	def testROM(self):
 		rom_path = Path(__file__).resolve().parent / "testROMs" / "nestest.nes"
-		cpu = CPU(ROM(rom_path))
+		console = Console(ROM(rom_path))
+		cpu = console.cpu
 		cpu.PC = 0xc000
-		for x in range(5000):
-			try:
-				cpu.fetch()
-			except:
-				print(str(x) + ' instructions tested...')
-				break
+		for _ in range(5000):
+			console.step()
 		cpu.logFile.close()
 
-		expectedOutput = open('nestest.log.txt', 'r')
-		actualOutput = open('log.txt')
-		line = 1
-		while True:
-			actualLine = actualOutput.readline()
-			expectedLine = expectedOutput.readline()
-			if actualLine == '' or expectedLine == '': break
-			if actualLine[0:4] != expectedLine[0:4]:
-				print('Instruction error on line: ' + str(line))
-				break
-			index1 = actualLine.index('CYC')
-			index2 = expectedLine.index('CYC')
-			if actualLine[index1:] != expectedLine[index2:]:
-				print('Timing error on line: ' + str(line))
-				break
-			line += 1
-		actualOutput.close()
-		expectedOutput.close()
+		expected_path = Path(__file__).resolve().parents[1] / "nestest.log.txt"
+		with expected_path.open() as expected_output, open("log.txt") as actual_output:
+			for line in range(1, 5001):
+				actual = actual_output.readline()
+				expected = expected_output.readline()
+				self.assertTrue(actual, f"missing actual log line {line}")
+				self.assertEqual(actual[0:4], expected[0:4], f"PC on line {line}")
+				self.assertEqual(
+					actual[actual.index("CYC"):],
+					expected[expected.index("CYC"):],
+					f"timing on line {line}",
+				)
 if __name__ == '__main__':
 	unittest.main()

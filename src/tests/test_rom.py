@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cpu import CPU  # noqa: E402
+from console import Console  # noqa: E402
 from mapper import (  # noqa: E402
     Mirroring,
     ROMFormatError,
@@ -92,15 +92,15 @@ class ROMLoaderTests(unittest.TestCase):
         self.assertIsNone(cartridge.trainer)
         self.assertEqual(cartridge.mapper.mirroring, Mirroring.HORIZONTAL)
 
-    def test_cpu_loads_mapper_prg_into_both_nrom128_windows(self):
+    def test_bus_reads_mapper_prg_from_both_nrom128_windows(self):
         prg = b"\xA5" + b"\0" * (0x4000 - 1)
         cartridge = ROM(self.write_rom(make_ines(prg=prg)))
 
-        cpu = CPU(cartridge)
+        console = Console(cartridge)
 
-        self.assertEqual(cpu.memory.read(0x8000), 0xA5)
-        self.assertEqual(cpu.memory.read(0xC000), 0xA5)
-        cpu.logFile.close()
+        self.assertEqual(console.bus.read(0x8000), 0xA5)
+        self.assertEqual(console.bus.read(0xC000), 0xA5)
+        console.cpu.logFile.close()
 
     def test_skips_and_retains_trainer(self):
         trainer = bytes((index & 0xFF for index in range(512)))

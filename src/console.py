@@ -23,20 +23,21 @@ class Console:
         cycles_before = self.cpu.cycles
         if self.bus.dma_stall_cycles:
             stall = self.bus.dma_stall_cycles
-            if (cycles_before // 3) & 1:
+            if cycles_before & 1:
                 stall += 1
             self.bus.dma_stall_cycles = 0
-            self.cpu.cycles += stall * 3
+            self.cpu.cycles += stall
         elif not self.cpu.service_interrupts():
             self.cpu.fetch()
 
-        dots = self.cpu.cycles - cycles_before
+        elapsed_cycles = self.cpu.cycles - cycles_before
+        dots = elapsed_cycles * 3
         for _ in range(dots):
             self.ppu.step()
 
         self.cpu.set_nmi_line(self.ppu.nmi_line)
         self.cpu.set_irq_line(self.apu.irq_line)
-        return dots // 3
+        return elapsed_cycles
 
     def run_frame(self):
         frame = self.ppu.frame

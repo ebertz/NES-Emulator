@@ -1,6 +1,8 @@
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -11,6 +13,29 @@ from console import Console  # noqa: E402
 from cpu import CPU  # noqa: E402
 from memory import Memory  # noqa: E402
 from ppu import PPU  # noqa: E402
+from rom import ROM  # noqa: E402
+from test_rom import make_ines  # noqa: E402
+
+
+def _prg_with_cpu_vectors(*, reset=0x8000, nmi=0x9000, irq=0x9100):
+    prg = bytearray(b"\xEA" * 0x4000)
+    jmp = bytes([0x4C, reset & 0xFF, (reset >> 8) & 0xFF])
+    prg[0:3] = jmp
+    prg[nmi - 0x8000 : nmi - 0x8000 + 3] = jmp
+    prg[0x3FFA : 0x3FFC] = bytes((nmi & 0xFF, (nmi >> 8) & 0xFF))
+    prg[0x3FFC : 0x3FFE] = bytes((reset & 0xFF, (reset >> 8) & 0xFF))
+    prg[0x3FFE : 0x4000] = bytes((irq & 0xFF, (irq >> 8) & 0xFF))
+    return bytes(prg)
+
+
+def _console_with_vectors(**vectors):
+    directory = tempfile.TemporaryDirectory()
+    path = Path(directory.name) / "vectors.nes"
+    path.write_bytes(make_ines(prg=_prg_with_cpu_vectors(**vectors)))
+    console = Console(ROM(path))
+    console.cpu.debug = False
+    console._vector_rom_dir = directory
+    return console
 
 
 class BusTests(unittest.TestCase):
@@ -101,6 +126,109 @@ class ConsoleTests(unittest.TestCase):
         self.console.step()
 
         self.assertEqual(self.console.cpu.A & 1, 1)
+
+
+class ConsoleInterruptIntegrationTests(unittest.TestCase):
+    """NMI/IRQ through Console.step(), not direct CPU line manipulation."""
+
+    NMI_HANDLER = 0x9000
+    IRQ_HANDLER = 0x9100
+
+    def tearDown(self):
+        if hasattr(self, "console"):
+            self.console.cpu.logFile.close()
+            if hasattr(self.console, "_vector_rom_dir"):
+                self.console._vector_rom_dir.cleanup()
+
+    def test_ppu_nmi_line_requires_vblank_and_ctrl_bit7(self):
+        ppu = PPU()
+        ppu.vblank = True
+        ppu.ctrl = 0x00
+        self.assertFalse(ppu.nmi_line)
+        ppu.ctrl = 0x80
+        self.assertTrue(ppu.nmi_line)
+
+    def test_step_wires_ppu_nmi_to_cpu_and_vectors_once_per_frame(self):
+        self.console = _console_with_vectors(nmi=self.NMI_HANDLER)
+        self.console.reset()
+        self.console.bus.write(0x2000, 0x80)
+
+        nmi_entries = 0
+        for _ in range(2):
+            frame = self.console.ppu.frame
+            frame_entries = 0
+            while self.console.ppu.frame == frame:
+                previous_pc = self.console.cpu.PC
+                self.console.step()
+                if (
+                    self.console.cpu.PC == self.NMI_HANDLER
+                    and previous_pc != self.NMI_HANDLER
+                ):
+                    frame_entries += 1
+                    nmi_entries += 1
+                    self.assertEqual(self.console.cpu.I, 1)
+                    sp = self.console.cpu.SP
+                    pcl = self.console.bus.read(sp + 2)
+                    pch = self.console.bus.read(sp + 3)
+                    return_pc = pcl | (pch << 8)
+                    self.assertGreaterEqual(return_pc, 0x8000)
+                    self.assertLess(return_pc, 0x8100)
+            self.assertEqual(frame_entries, 1)
+
+        self.assertEqual(nmi_entries, 2)
+
+    def test_step_does_not_nmi_when_ppu_ctrl_nmi_disabled(self):
+        self.console = _console_with_vectors(nmi=self.NMI_HANDLER)
+        self.console.reset()
+        self.console.bus.write(0x2000, 0x00)
+
+        self.console.run_frame()
+
+        self.assertEqual(self.console.cpu.PC, 0x8000)
+
+    def test_step_samples_apu_irq_when_interrupts_unmasked(self):
+        class IrqAssertingAPU:
+            @property
+            def irq_line(self):
+                return True
+
+            def read_register(self, addr):
+                return 0
+
+            def write_register(self, addr, value):
+                pass
+
+        self.console = _console_with_vectors(irq=self.IRQ_HANDLER)
+        self.console.reset()
+        self.console.apu = IrqAssertingAPU()
+        self.console.cpu.I = 0
+
+        self.console.step()
+        self.console.step()
+        self.assertEqual(self.console.cpu.PC, self.IRQ_HANDLER)
+
+    def test_step_ignores_apu_irq_while_cpu_interrupts_masked(self):
+        class IrqAssertingAPU:
+            @property
+            def irq_line(self):
+                return True
+
+            def read_register(self, addr):
+                return 0
+
+            def write_register(self, addr, value):
+                pass
+
+        self.console = _console_with_vectors(irq=self.IRQ_HANDLER)
+        self.console.reset()
+        self.console.apu = IrqAssertingAPU()
+        self.console.cpu.I = 1
+
+        for _ in range(4):
+            self.console.step()
+
+        self.assertEqual(self.console.cpu.PC, 0x8000)
+        self.assertNotEqual(self.console.cpu.PC, self.IRQ_HANDLER)
 
 
 class InterruptTests(unittest.TestCase):

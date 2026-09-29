@@ -1,14 +1,14 @@
 # emulator-core
 
-Python NES console core: 6502 CPU, addressing helpers, flat memory helpers,
-iNES ROM loading, and a PPU module that must at least compile and accept
-register traffic.
+Python NES console core: 6502 CPU, addressing helpers, system bus, iNES ROM
+loading, and a PPU module that must at least compile and accept register
+traffic.
 
 ## Purpose
 
 Own the code that turns a cartridge image into a bus-connected, clocked
-CPU/PPU/APU console. Punch-Out requires Mapper 9 (MMC2); the
-current tree exposes the mapper interface with Mapper 0 for nestest.
+CPU/PPU/APU console. Punch-Out requires Mapper 9 (MMC2); the current tree
+exposes the mapper interface with Mapper 0 for nestest.
 
 ## Anchor Files
 
@@ -18,16 +18,14 @@ current tree exposes the mapper interface with Mapper 0 for nestest.
 - `src/console.py` — component wiring and cycle scheduler
 - `src/controller.py` — serial controller port
 - `src/cpu.py` — 6502 CPU and instruction decode/execute
-- `src/harness.py` — standalone CPU wiring backed by flat memory
 - `src/mapper.py` — cartridge mapper interface and NROM implementation
-- `src/memory.py` — flat byte store for CPU-only harnesses
 - `src/ppu.py` — PPU skeleton (must compile; rendering is later tickets)
 - `src/rom.py` — path-based iNES header and cartridge loader
 
 ## Public Contract
 
-- Callers construct a CPU with an injected bus; `Console` wires the NES bus and
-  `CPUHarness` wires the supported flat-memory CPU-only configuration.
+- Callers construct a CPU with an injected bus; `Console` wires the NES system
+  bus used by production and CPU tests.
 - ROM loading accepts a filesystem path and will grow a mapper interface.
 - Commercial ROMs are never committed; nestest stays under `src/tests/testROMs/`.
 

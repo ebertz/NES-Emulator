@@ -81,8 +81,8 @@ References: [nesdev CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map),
 - The **bus protocol** is six methods, all required:
   `read(addr) -> int`, `write(addr, value) -> None`, `read16(addr) -> int`,
   `write16(addr, value) -> None`, `peek(addr) -> int`, `peek16(addr) -> int`.
-  Both `bus.Bus` (R2) and `memory.Memory` satisfy it. Any future bus must implement all
-  six: `CPU.peek`/`CPU.peek16` call `bus.peek`/`bus.peek16` unconditionally, and
+  `bus.Bus` (R2) satisfies it. Any future bus must implement all six:
+  `CPU.peek`/`CPU.peek16` call `bus.peek`/`bus.peek16` unconditionally, and
   `CPU()` defaults to `debug = True`, so a bus without `peek` raises `AttributeError`
   on the first traced instruction.
 - `peek`/`peek16` return the byte(s) `read`/`read16` would return **without any side
@@ -95,10 +95,8 @@ References: [nesdev CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map),
   so enabling the trace never changes emulated state.
 - `Memory.loadROM` is deleted; cartridge bytes are served live by the mapper through
   `Bus` (R2), never copied.
-- `memory.Memory` stays as a plain flat byte store. It is a valid bus for CPU-only
-  harnesses (e.g. standalone 6502 test programs) and implements all six protocol methods,
-  including `peek`/`peek16`. The CPU unit tests do not use it (R8). It is not
-  used by `Console`.
+- The obsolete flat `memory.Memory` store is deleted. CPU execution uses the NES
+  `Bus`; standalone CPU tests use the same production bus path (R8).
 
 ### R2 — `Bus` owns the CPU address map (new module `src/bus.py`)
 
@@ -289,8 +287,7 @@ components are wired.
 - **CPU unit tests on the real `Bus` (reverses v1.0's flat-`Memory` harness).** The
   acceptance criterion says "existing CPU unit tests still pass with a bus-backed
   memory". Running them on the production `Bus` meets that literally, and it exercises
-  RAM mirroring and cartridge vectors. `memory.Memory` stays a valid bus (it implements
-  `peek`/`peek16`) for CPU-only harnesses, but no suite in this ticket depends on it.
+  RAM mirroring and cartridge vectors. There is no parallel flat-memory CPU harness.
 - **Fix wrong assertions rather than freeze them.** Keeping a 22-failure baseline hid
   real regressions. Each corrected assertion in R8 is justified by 6502 behavior or by
   the address map.
@@ -302,7 +299,8 @@ components are wired.
 ## Subsystem Impact
 
 - **Affected subsystems:** `emulator-core` (new `bus.py`, `console.py`, `controller.py`,
-  `apu.py`; edits to `cpu.py`, `addressing.py`, `memory.py`, `ppu.py`); `tests` (new
+  `apu.py`; edits to `cpu.py`, `addressing.py`, `ppu.py`; deletion of `memory.py`);
+  `tests` (new
   `test_bus.py`/`test_console.py` or equivalent; `test_cpu.py` and `test_rom.py` wiring).
 - **Boundary crossings:** only `tests → emulator-core`, which already exists. No new edges.
 - **New subsystems:** none. Bus/console/controller/APU stay in `emulator-core`, as its
@@ -312,8 +310,8 @@ components are wired.
   emulator-core and the new test module(s) under tests. The catalog is already stale:
   `src/mapper.py`, `src/tests/test_rom.py`, and `src/log.txt` from N4T2 are missing,
   and it lists `src/nestest.log.txt` under core. Fix both in that PR.
-  `sub-systems/emulator-core.md` Anchor Files gains the four modules, and `memory.py`'s
-  description becomes "flat byte store / CPU-only bus".
+  `sub-systems/emulator-core.md` Anchor Files gains the four modules and removes
+  `memory.py`.
 
 ## Test Expectations (acceptance only — test agent owns test code)
 
